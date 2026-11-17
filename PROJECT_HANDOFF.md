@@ -10,7 +10,7 @@ Pages built). No Firebase.
 
 Polish pass 2026-11-17 (same day): visual redesign to the dark-navy reference card plus the one-tap Correct button. PUSHED 2026-11-17 (commit 7d4fcbcc) and live-verified — live app.js and styles.css byte-match local (md5), `closeCorrect` present. See "Polish pass — 2026-11-17" below.
 
-Card-tap fix 2026-11-17 (same day, not yet pushed — parent pushes after verifying): the whole call card is now tappable, and the first action-bar segment is Add member instead of Open. See "Card-tap fix — 2026-11-17" below.
+Card-tap fix 2026-11-17 (same day): the whole call card is now tappable, and the first action-bar segment is Add member instead of Open. PUSHED 2026-11-17 (commit 485ad9bf) and live-verified — live app.js and styles.css byte-match local (md5). See "Card-tap fix — 2026-11-17" below.
 
 ## Architecture
 
