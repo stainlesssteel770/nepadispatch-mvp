@@ -33,13 +33,11 @@ check("role switcher lists users", (await page.$$eval("#role-switch option", (o)
 
 // 1. Member privacy: non-responding member cannot see caller on c2
 await setRole("u-m4");
-await page.evaluate(() => { document.querySelectorAll('[data-action="open-call"]'); });
-const openCallBtns = await page.$$('[data-action="open-call"]');
-// open c2 (second open call card on home for member: INC-1042 then INC-1043)
+// open c2 by tapping the card body (address) — the whole card opens the call
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const c2 = cards.find((c) => c.innerText.includes("INC-1043"));
-  c2.querySelector('[data-action="open-call"]').click();
+  c2.querySelector(".card-addr").click();
 });
 await sleep(300);
 t = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
@@ -52,7 +50,7 @@ await sleep(400);
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const c2 = cards.find((c) => c.innerText.includes("INC-1043"));
-  c2.querySelector('[data-action="open-call"]').click();
+  c2.querySelector(".card-addr").click();
 });
 await sleep(300);
 t = await page.evaluate(() => {
@@ -92,7 +90,7 @@ check("duplicate submit returns existing record", dup.dup && dup.sameId && dup.a
 await clickAction("tab", { tab: "calls" });
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
-  cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="open-call"]').click();
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector(".card-addr").click();
 });
 await sleep(300);
 await page.click('#close-form button[type="submit"]');
@@ -110,7 +108,7 @@ await sleep(300);
 await clickAction("tab", { tab: "calls" });
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
-  cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="open-call"]').click();
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector(".card-addr").click();
 });
 await sleep(300);
 await page.click('#close-form button[type="submit"]');
@@ -124,7 +122,7 @@ await sleep(200);
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const c = cards.find((x) => x.innerText.includes("INC-1043"));
-  if (c) c.querySelector('[data-action="open-call"]').click();
+  if (c) c.querySelector(".card-addr").click();
 });
 await sleep(300);
 // click the backup buttons inside the open dialog (the card's own bell
@@ -141,7 +139,7 @@ await page.click('[data-action="close-dialog"]').catch(() => {});
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const c = cards.find((x) => x.innerText.includes("INC-1044"));
-  if (c) c.querySelector('[data-action="open-call"]').click();
+  if (c) c.querySelector(".card-addr").click();
 });
 await sleep(300);
 await clickAction("put-out", { id: "c3" });
@@ -155,7 +153,7 @@ await setRole("u-m4");
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const c = cards.find((x) => x.innerText.includes("INC-1039"));
-  if (c) c.querySelector('[data-action="open-call"]').click();
+  if (c) c.querySelector(".card-addr").click();
 });
 await sleep(300);
 await clickAction("request-hidden", { id: "c4" });
@@ -177,7 +175,7 @@ await clickAction("tab", { tab: "calls" });
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const c = cards.find((x) => x.innerText.includes("INC-1039"));
-  if (c) c.querySelector('[data-action="open-call"]').click();
+  if (c) c.querySelector(".card-addr").click();
 });
 await sleep(300);
 t = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
@@ -256,6 +254,74 @@ check("Correct blocked while equipment out, call stays open", stillOpen && /Equi
 await setRole("u-m4");
 const correctHidden = await page.evaluate(() => [...document.querySelectorAll('[data-action="correct-call"]')].length);
 check("Correct button hidden for members", correctHidden === 0, "count=" + correctHidden);
+
+// 12. Whole-card tap + Add member (state reset to fresh seed: c1 open
+// with equipment out, c2 open with nothing out)
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await setRole("u-disp");
+await clickAction("tab", { tab: "calls" });
+// (a) tapping the card body (address) opens the detail dialog
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector(".card-addr").click();
+});
+await sleep(300);
+let dlgOpen = await page.evaluate(() => document.querySelector("#dlg").open);
+let dlgText = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+check("tapping card body opens call detail", dlgOpen && dlgText.includes("INC-1043"), dlgText.slice(0, 80));
+await page.click('[data-action="close-dialog"]');
+await sleep(200);
+// (b) Add member picker assigns a member, ETA "—", pill + log
+const addVisible = await page.evaluate(() => [...document.querySelectorAll('[data-action="add-member"]')].length);
+check("Add member shown to dispatcher on open calls", addVisible === 2, "count=" + addVisible);
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="add-member"]').click();
+});
+await sleep(300);
+let pickerText = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+check("Add member opens member picker", pickerText.includes("Add a member to INC-1043"), pickerText.slice(0, 120));
+await page.evaluate(() => { document.querySelector('#dlg-body [data-action="assign-member"]').click(); });
+await sleep(400);
+const assignOk = await page.evaluate(() => {
+  const c = DispatchStore.call("c2");
+  const r = c.responders[0];
+  return r && r.eta === "—" && DispatchStore.state.activityLog.some((a) => /assigned to INC-1043/.test(a.text));
+});
+check("assigning from picker adds responder with ETA — and log entry", assignOk);
+const pillOk = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1043"));
+  return c && c.querySelector(".pills").innerText.trim() !== "No one yet";
+});
+check("assigned member shows as responder pill", pillOk);
+await page.click('[data-action="close-dialog"]').catch(() => {});
+await sleep(200);
+// (c) Backup tap on a card does NOT open the dialog
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="backup-request"]').click();
+});
+await sleep(300);
+dlgOpen = await page.evaluate(() => document.querySelector("#dlg").open);
+const backupBadge = await page.evaluate(() => document.body.innerText.includes("BACKUP NEEDED"));
+check("Backup tap on card does not open dialog", !dlgOpen && backupBadge);
+// (d) Add member hidden for a plain member
+await setRole("u-m4");
+const addHidden = await page.evaluate(() => [...document.querySelectorAll('[data-action="add-member"]')].length);
+check("Add member hidden for members", addHidden === 0, "count=" + addHidden);
+// (e) tapping the tap-to-call number on a card does NOT open the dialog
+await setRole("u-disp");
+await clickAction("tab", { tab: "calls" });
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('.card-row a[href^="tel:"]').click();
+});
+await sleep(300);
+dlgOpen = await page.evaluate(() => document.querySelector("#dlg").open);
+check("tap-to-call link on card does not open dialog", !dlgOpen);
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 

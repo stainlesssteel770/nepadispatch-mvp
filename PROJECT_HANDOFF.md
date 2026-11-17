@@ -8,10 +8,9 @@ stainlesssteel770/nepadispatch-mvp (commit a63d3850) and live at
 https://stainlesssteel770.github.io/nepadispatch-mvp/ (repo public,
 Pages built). No Firebase.
 
-Polish pass 2026-11-17 (same day, not yet pushed — parent pushes
-after verifying): visual redesign to the dark-navy reference card
-plus the one-tap Correct button. See "Polish pass — 2026-11-17"
-below.
+Polish pass 2026-11-17 (same day): visual redesign to the dark-navy reference card plus the one-tap Correct button. PUSHED 2026-11-17 (commit 7d4fcbcc) and live-verified — live app.js and styles.css byte-match local (md5), `closeCorrect` present. See "Polish pass — 2026-11-17" below.
+
+Card-tap fix 2026-11-17 (same day, not yet pushed — parent pushes after verifying): the whole call card is now tappable, and the first action-bar segment is Add member instead of Open. See "Card-tap fix — 2026-11-17" below.
 
 ## Architecture
 
@@ -34,7 +33,7 @@ Plain HTML/CSS/JS, no build step, no framework, no network calls.
   - **UI**: tab rendering per role, call detail dialog, forms. All
     persistence goes through Store; UI never touches localStorage
     directly.
-- `tests/smoke.mjs` — 23 headless-browser checks (puppeteer-core).
+- `tests/smoke.mjs` — 36 headless-browser checks (puppeteer-core).
 
 ## Data model (Store.state)
 
@@ -162,9 +161,9 @@ localStorage, with “Reset to fake seed data”, “Clear all my data”
 ## What was tested
 
 Smoke suite `tests/smoke.mjs`, headless Chrome (puppeteer-core),
-390×844 mobile viewport, served over local HTTP. **28/28 passed**
-on 2026-11-17 after the polish pass (was 23/23 before it): home
-render + warning; role switcher; caller hidden for a non-responding
+390×844 mobile viewport, served over local HTTP. **36/36 passed**
+on 2026-11-17 after the card-tap fix (was 28/28 after the polish
+pass, 23/23 before it): home render + warning; role switcher; caller hidden for a non-responding
 member; caller visible with tap-to-call after responding; new call
 with own data through the summary step; duplicate submit returns the
 existing record; close blocked while equipment is out, then succeeds
@@ -176,8 +175,13 @@ restores the seed; state persists across reload; **one-tap Correct:
 button shown to dispatcher on the 2 open calls, one tap closes
 INC-1043 as Corrected with confirmation, Correct on INC-1042 (jack
 out) leaves the call open with the return-equipment message, Correct
-hidden for members (0 buttons)**; no page errors. `node --check`
-clean on `app.js` and `seed.js`.
+hidden for members (0 buttons)**; **whole-card tap: tapping the card
+body (address) opens the call detail; Add member shown to dispatcher
+on the 2 open calls; picker opens and assigning adds a responder with
+ETA "—" plus a log entry and a responder pill; Backup tap on a card
+does NOT open the dialog; Add member hidden for members (0 buttons);
+tapping the tap-to-call number on a card does NOT open the dialog**;
+no page errors. `node --check` clean on `app.js` and `seed.js`.
 
 Two failures appeared on the first post-polish run and were fixed,
 both in the new work, not in the old flows: (1) the redesigned card
@@ -213,13 +217,15 @@ Visual changes (`styles.css`, plus `callCard()` in `app.js`):
   dim pill. Status pills are distinct per status (open blue, draft
   grey, closed green, urgent red, backup amber).
 - Bottom action bar on each card, thumb-sized icon segments with
-  short labels: Open (person+ icon, opens the call detail),
-  Backup (bell — requests backup, or clears it when already
-  needed), Correct (green checkmark, dispatcher/coordinator only),
-  Call (phone — tap-to-call, only when the role may see the caller),
-  Maps (opens the address in Google Maps, new tab; uses the call's
-  saved Maps link when one exists). All icons are inline SVG —
-  no network, no emoji.
+  short labels: Add (person+ icon — dispatcher/coordinator assigns a
+  member from a picker; open calls only), Backup (bell — requests
+  backup, or clears it when already needed), Correct (green
+  checkmark, dispatcher/coordinator only), Call (phone — tap-to-call,
+  only when the role may see the caller), Maps (opens the address in
+  Google Maps, new tab; uses the call's saved Maps link when one
+  exists). All icons are inline SVG — no network, no emoji. The old
+  "Open" segment is gone — tapping anywhere on the card body opens
+  the call detail instead (see "Card-tap fix" below).
 - Smooth and sleek throughout: generous rounded corners (18px
   cards, pill tabs/buttons), soft shadows, consistent spacing,
   subtle 0.15s transitions on taps and tab changes, sticky navy
@@ -251,6 +257,39 @@ list instead of popping the dialog open. Dialog-originated taps
 behave exactly as before. No decided rule changed; every existing
 test selector/ID is stable (the card's "Open call" action kept its
 `data-action="open-call"`).
+
+## Card-tap fix — 2026-11-17 (whole card tappable + Add member)
+
+Owner report from his phone: tapping a call card did nothing — the
+only way into a call was the small "Open" segment, and its person+
+icon read as "add member" (as in his reference screenshot), so the
+one way in didn't even look like the way in. The smoke tests only
+ever clicked that small button, which is why they missed it.
+
+Changes (`app.js` `callCard()` + click handler, `styles.css`):
+- The whole card is tappable: the card `<article>` itself carries
+  `data-action="open-call"`, so tapping the address, info rows,
+  pills or badges opens the call detail exactly as the old Open
+  segment did. Taps on action-bar buttons/links keep their own
+  behaviour: the delegated click handler takes the closest
+  `[data-action]` (a bar button wins over the card), and taps on a
+  link inside the card (tap-to-call number, Call/Maps segments) are
+  explicitly ignored for opening — the link proceeds instead.
+  Affordance: a chevron at the right of the card header, pointer
+  cursor, a slight press state, and a focus outline; Enter/Space on
+  a focused card also opens it.
+- First action-bar segment is now **Add member** (person+ icon,
+  dispatcher/coordinator only, open calls only, hide-don't-disable),
+  matching the reference screenshot. Tapping it opens a picker
+  listing members/coordinators not already responding to the call;
+  picking one calls the new `Store.assign(callId, userId)` — open
+  calls only, dispatcher/coordinator only (enforced in the Store
+  method via a new `can("assign")` permission), no duplicate
+  assignment, responder recorded with ETA "—" (dispatcher-assigned,
+  ETA unknown), assignment logged. Undo is the existing dispatcher
+  unassign in the call detail. This replaces the old "Open" segment
+  entirely — the card tap is now the way in. The My-history "Open
+  call" button (a plain button, not a card) is unchanged.
 
 ## What was NOT tested
 

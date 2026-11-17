@@ -67,6 +67,12 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 .card.light a { color: var(--accent); }
 .card.light .kv dt { color: var(--mute); }
 
+/* call cards are tappable: the whole card opens the call detail */
+.card.call-card { cursor: pointer; }
+.card.call-card:active { transform: scale(.995); box-shadow: 0 3px 10px rgba(10, 20, 40, .25); }
+.card.call-card:focus-visible { outline: 2px solid #9db8ff; outline-offset: 2px; }
+.card-chev { color: var(--card-mute); align-self: center; flex: 0 0 auto; }
+.card-chev svg { width: 22px; height: 22px; }
 /* call-card header row: big address left, incident + time right */
 .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .card-addr { font-size: 1.35rem; font-weight: 800; line-height: 1.2; letter-spacing: -.01em; color: #fff; }

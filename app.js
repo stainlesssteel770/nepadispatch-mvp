@@ -79,7 +79,7 @@ var Store = {
     var me = this.me();
     var r = me.role, inv = !!me.inventoryManager;
     switch (action) {
-      case "create-call": case "put-out": case "close": case "reopen": case "unassign":
+      case "create-call": case "put-out": case "close": case "reopen": case "unassign": case "assign":
       case "approve-hidden": case "backup": return r === "dispatcher" || r === "coordinator";
       case "respond": return r === "member" || r === "coordinator";
       case "manage-members": case "manage-natures": case "manage-fleet":
@@ -171,6 +171,20 @@ var Store = {
     if (i === -1) return { ok: false, error: "That member is not responding to this call." };
     c.responders.splice(i, 1);
     this.log(this.user(userId).name + " unassigned from " + c.incident + " by " + this.me().name); this.save();
+    return { ok: true };
+  },
+  // Dispatcher/coordinator assigns a member to an open call (the card's
+  // "Add" segment). No duplicate assignment; ETA is "—" — dispatcher-
+  // assigned, ETA unknown. Undo is the existing unassign (dispatcher).
+  assign: function (callId, userId) {
+    var c = this.call(callId); if (!c) return { ok: false, error: "Call not found." };
+    if (c.status !== "open") return { ok: false, error: "Only an open call can have a member assigned." };
+    if (!this.can("assign")) return { ok: false, error: "Only a dispatcher or coordinator can assign a member." };
+    var u = this.user(userId); if (!u) return { ok: false, error: "Member not found." };
+    if (u.role !== "member" && u.role !== "coordinator") return { ok: false, error: "Only members and coordinators can be assigned to a call." };
+    if (this.isResponding(c, userId)) return { ok: false, error: u.name + " is already responding to this call." };
+    c.responders.push({ userId: userId, eta: "—", at: nowISO() });
+    this.log(u.name + " assigned to " + c.incident + " by " + this.me().name + " (ETA —)"); this.save();
     return { ok: true };
   },
   requestBackup: function (callId) {
@@ -401,12 +415,17 @@ var ICONS = {
   userPlus: svg('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>'),
   bell: svg('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'),
   check: svg('<polyline points="20 6 9 17 4 12"/>'),
+  chev: svg('<polyline points="9 18 15 12 9 6"/>'),
   route: svg('<polygon points="3 11 22 2 13 21 11 13 3 11"/>')
 };
 // Call card, reference layout: big address + incident/time on top,
 // icon-led rows (what / phone / notes), responder pills, then a
-// 5-icon action bar — Open, Backup, Correct, Call, Maps. Only the
+// 5-icon action bar — Add, Backup, Correct, Call, Maps. Only the
 // actions the signed-in role may use are shown (hide, don't disable).
+// The whole card is tappable: tapping anywhere on the card body opens
+// the call detail (the card itself carries data-action="open-call");
+// taps on action-bar buttons/links keep their own behaviour — the
+// document click handler ignores link taps that bubble to the card.
 function callCard(c) {
   var me = Store.me();
   var isOpen = c.status === "open";
@@ -422,8 +441,10 @@ function callCard(c) {
     ? c.responders.map(function (r) { var u = Store.user(r.userId); return '<span class="pill">' + esc(u ? u.name.split(" ")[0] : "?") + "</span>"; }).join("")
     : '<span class="pill dim">No one yet</span>';
   var mapsUrl = c.mapsLink || ("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(c.address));
-  var bar = '<div class="card-bar">' +
-    '<button class="bar-seg" data-action="open-call" data-id="' + c.id + '" aria-label="Open call">' + ICONS.userPlus + "<span>Open</span></button>";
+  var bar = '<div class="card-bar">';
+  if (isOpen && Store.can("assign")) {
+    bar += '<button class="bar-seg" data-action="add-member" data-id="' + c.id + '" aria-label="Add a member to this call">' + ICONS.userPlus + "<span>Add</span></button>";
+  }
   if (isOpen && (Store.can("backup") || responding)) {
     bar += c.backupNeeded
       ? '<button class="bar-seg" data-action="backup-clear" data-id="' + c.id + '" aria-label="Clear backup needed">' + ICONS.bell + "<span>Backup ✓</span></button>"
@@ -436,9 +457,10 @@ function callCard(c) {
     bar += '<a class="bar-seg" href="tel:' + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + '" aria-label="Call the caller back">' + ICONS.phone + "<span>Call</span></a>";
   }
   bar += '<a class="bar-seg" href="' + esc(mapsUrl) + '" target="_blank" rel="noopener" aria-label="Open address in Maps">' + ICONS.route + "<span>Maps</span></a></div>";
-  return '<article class="card' + (c.urgent && isOpen ? " urgent" : "") + (c.backupNeeded ? " backup" : "") + '">' +
+  return '<article class="card call-card' + (c.urgent && isOpen ? " urgent" : "") + (c.backupNeeded ? " backup" : "") + '" data-action="open-call" data-id="' + c.id + '" tabindex="0" role="button" aria-label="Open ' + esc(c.incident) + ' — ' + esc(c.nature) + '">' +
     '<div class="card-head"><div class="card-addr"><span class="pin">' + ICONS.pin + "</span>" + esc(c.address) + '</div>' +
-    '<div class="card-inc">' + esc(c.incident) + '<span class="time">' + esc(time) + "</span></div></div>" +
+    '<div class="card-inc">' + esc(c.incident) + '<span class="time">' + esc(time) + "</span></div>" +
+    '<span class="card-chev" aria-hidden="true">' + ICONS.chev + "</span></div>" +
     (badges.length ? '<div class="badges">' + badges.join(" ") + "</div>" : "") +
     '<div class="card-row"><span class="ic">' + ICONS.info + '</span><span class="val"><strong>' + esc(c.nature) + "</strong>" +
     (c.vehicle ? ' · <span class="veh">' + esc(c.vehicle) + "</span>" : "") + "</span></div>" +
@@ -564,6 +586,21 @@ function newCallSummary(data) {
     '<button class="btn" data-action="confirm-call" data-status="open">Put out call</button>' +
     '<button class="btn secondary" data-action="confirm-call" data-status="draft">Save as draft (no notifications)</button>' +
     '<button class="btn secondary" data-action="cancel-summary">Back to edit</button>';
+  return h;
+}
+
+/* ----- add-member picker (dispatcher/coordinator assigns a member) ----- */
+function assignPickerHTML(c) {
+  var eligible = Store.state.users.filter(function (u) {
+    return (u.role === "member" || u.role === "coordinator") && !Store.isResponding(c, u.id);
+  });
+  var h = "<h2>Add a member to " + esc(c.incident) + "</h2>";
+  h += "<p class=\"muted\">Pick a member to assign to this call. They show as a responder with no ETA (“—”). Use Unassign in the call detail to undo.</p>";
+  if (!eligible.length) h += "<p>Everyone who can respond is already on this call.</p>";
+  eligible.forEach(function (u) {
+    h += '<button class="btn" data-action="assign-member" data-id="' + c.id + '" data-user="' + u.id + '">' + esc(u.name) + " — " + roleLabel(u.role) + "</button>";
+  });
+  h += '<div><button class="btn secondary" data-action="close-dialog">Done</button></div>';
   return h;
 }
 
@@ -842,10 +879,16 @@ document.addEventListener("click", function (e) {
   if (!el) return;
   var a = el.dataset.action, id = el.dataset.id;
   var c, r;
+  // Card-body taps open the call; taps on links inside the card (the
+  // tap-to-call number, the Call/Maps bar segments) keep their own
+  // behaviour instead of opening the dialog.
+  if (a === "open-call" && e.target.closest("a")) return;
   switch (a) {
     case "tab": App.tab = el.dataset.tab; render(); break;
     case "close-dialog": closeDialog(); break;
     case "open-call": c = Store.call(id); if (c) openDialog(callDetailHTML(c)); break;
+    case "add-member": c = Store.call(id); if (c && Store.can("assign")) openDialog(assignPickerHTML(c)); break;
+    case "assign-member": r = Store.assign(id, el.dataset.user); toast(r.ok ? "Member assigned to the call." : r.error); render(); if (r.ok) { c = Store.call(id); if (c) openDialog(assignPickerHTML(c)); } break;
     case "interstate": toast("Interstate button is a placeholder in this prototype — it sends nothing."); break;
     case "backup-request": r = Store.requestBackup(id); toast(r.ok ? "Backup requested — everyone alerted." : r.error); render(); if (r.ok && $("#dlg").open) { c = Store.call(id); if (c) openDialog(callDetailHTML(c)); } break;
     case "backup-clear": r = Store.clearBackup(id); toast(r.ok ? "Backup cleared." : r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
@@ -937,6 +980,14 @@ document.addEventListener("click", function (e) {
       download("dispatch-mvp-report.csv", csv, "text/csv"); toast("Report downloaded as CSV."); break;
     }
   }
+});
+
+/* Keyboard: Enter/Space on a focused call card opens it, like a tap. */
+document.addEventListener("keydown", function (e) {
+  if ((e.key !== "Enter" && e.key !== " ") || !e.target.classList || !e.target.classList.contains("call-card")) return;
+  e.preventDefault();
+  var c = Store.call(e.target.dataset.id);
+  if (c) openDialog(callDetailHTML(c));
 });
 
 /* ----- forms ----- */
