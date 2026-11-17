@@ -206,6 +206,11 @@ var Store = {
     this.log(c.incident + " reopened by " + this.me().name); this.save();
     return { ok: true };
   },
+  // One-tap close as Corrected (the brief's one-tap "correct" option).
+  // Same rules as closeCall: equipment out blocks it.
+  closeCorrect: function (callId) {
+    return this.closeCall(callId, "Corrected");
+  },
   requestHidden: function (callId, fields) {
     var c = this.call(callId); if (!c) return { ok: false, error: "Call not found." };
     var existing = this.state.hiddenRequests.find(function (r) { return r.callId === callId && r.requesterId === Store.me().id && r.status === "pending"; });
@@ -386,25 +391,62 @@ var App = { tab: "home", pendingCall: null, idemKey: null };
 
 function roleLabel(r) { return {"super-admin":"Super admin","coordinator":"Coordinator","dispatcher":"Dispatcher","member":"Member"}[r] || r; }
 function userName(id) { var u = Store.user(id); return u ? esc(u.name) : "—"; }
+// Inline SVG icons (no network, no emoji). Used on call cards.
+function svg(paths) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + "</svg>"; }
+var ICONS = {
+  pin: svg('<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>'),
+  info: svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>'),
+  phone: svg('<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>'),
+  clip: svg('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>'),
+  userPlus: svg('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>'),
+  bell: svg('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'),
+  check: svg('<polyline points="20 6 9 17 4 12"/>'),
+  route: svg('<polygon points="3 11 22 2 13 21 11 13 3 11"/>')
+};
+// Call card, reference layout: big address + incident/time on top,
+// icon-led rows (what / phone / notes), responder pills, then a
+// 5-icon action bar — Open, Backup, Correct, Call, Maps. Only the
+// actions the signed-in role may use are shown (hide, don't disable).
 function callCard(c) {
   var me = Store.me();
+  var isOpen = c.status === "open";
+  var responding = Store.isResponding(c, me.id);
+  var canSee = Store.canSeeCaller(c, me.id);
   var badges = [];
   if (c.urgent) badges.push('<span class="badge urgent">URGENT</span>');
   if (c.backupNeeded) badges.push('<span class="badge backup">BACKUP NEEDED</span>');
   if (c.status === "draft") badges.push('<span class="badge draft">DRAFT</span>');
   if (c.status === "closed") badges.push('<span class="badge closed">CLOSED — ' + esc(c.outcome || "") + '</span>');
-  var responders = c.responders.map(function (r) { return userName(r.userId) + " (ETA " + esc(r.eta) + ")"; }).join(", ") || "No one responding yet";
-  var caller = Store.canSeeCaller(c, me.id)
-    ? "<dt>Caller</dt><dd>" + esc(c.callerName) + " — <a href=\"tel:" + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + "\">" + esc(c.callerPhone) + "</a></dd>"
-    : "<dt>Caller</dt><dd class=\"muted\">Hidden — visible only while you are responding to this call, or with an approved grant.</dd>";
-  return '<article class="card' + (c.urgent && c.status === "open" ? " urgent" : "") + (c.backupNeeded ? " backup" : "") + '">' +
-    "<h3>" + esc(c.incident) + " — " + esc(c.nature) + " " + badges.join(" ") + "</h3>" +
-    '<dl class="kv"><dt>Address</dt><dd>' + esc(c.address) + "</dd>" + caller +
-    "<dt>Vehicle</dt><dd>" + esc(c.vehicle || "—") + "</dd>" +
-    "<dt>Responding</dt><dd>" + responders + "</dd>" +
-    "<dt>Created</dt><dd>" + fmtDT(c.createdAt) + "</dd></dl>" +
-    (c.notes ? '<p class="muted">' + esc(c.notes) + "</p>" : "") +
-    '<button class="btn small" data-action="open-call" data-id="' + c.id + '">Open call</button>' +
+  var time = new Date(c.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  var pills = c.responders.length
+    ? c.responders.map(function (r) { var u = Store.user(r.userId); return '<span class="pill">' + esc(u ? u.name.split(" ")[0] : "?") + "</span>"; }).join("")
+    : '<span class="pill dim">No one yet</span>';
+  var mapsUrl = c.mapsLink || ("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(c.address));
+  var bar = '<div class="card-bar">' +
+    '<button class="bar-seg" data-action="open-call" data-id="' + c.id + '" aria-label="Open call">' + ICONS.userPlus + "<span>Open</span></button>";
+  if (isOpen && (Store.can("backup") || responding)) {
+    bar += c.backupNeeded
+      ? '<button class="bar-seg" data-action="backup-clear" data-id="' + c.id + '" aria-label="Clear backup needed">' + ICONS.bell + "<span>Backup ✓</span></button>"
+      : '<button class="bar-seg" data-action="backup-request" data-id="' + c.id + '" aria-label="Request backup">' + ICONS.bell + "<span>Backup</span></button>";
+  }
+  if (isOpen && Store.can("close")) {
+    bar += '<button class="bar-seg act-correct" data-action="correct-call" data-id="' + c.id + '" aria-label="Close this call as Corrected">' + ICONS.check + "<span>Correct</span></button>";
+  }
+  if (canSee) {
+    bar += '<a class="bar-seg" href="tel:' + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + '" aria-label="Call the caller back">' + ICONS.phone + "<span>Call</span></a>";
+  }
+  bar += '<a class="bar-seg" href="' + esc(mapsUrl) + '" target="_blank" rel="noopener" aria-label="Open address in Maps">' + ICONS.route + "<span>Maps</span></a></div>";
+  return '<article class="card' + (c.urgent && isOpen ? " urgent" : "") + (c.backupNeeded ? " backup" : "") + '">' +
+    '<div class="card-head"><div class="card-addr"><span class="pin">' + ICONS.pin + "</span>" + esc(c.address) + '</div>' +
+    '<div class="card-inc">' + esc(c.incident) + '<span class="time">' + esc(time) + "</span></div></div>" +
+    (badges.length ? '<div class="badges">' + badges.join(" ") + "</div>" : "") +
+    '<div class="card-row"><span class="ic">' + ICONS.info + '</span><span class="val"><strong>' + esc(c.nature) + "</strong>" +
+    (c.vehicle ? ' · <span class="veh">' + esc(c.vehicle) + "</span>" : "") + "</span></div>" +
+    (canSee
+      ? '<div class="card-row"><span class="ic">' + ICONS.phone + '</span><span class="val"><strong>' + esc(c.callerName) + '</strong> — <a href="tel:' + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + '">' + esc(c.callerPhone) + "</a></span></div>"
+      : '<div class="card-row"><span class="ic">' + ICONS.phone + '</span><span class="val dim">Caller hidden — visible only while you are responding to this call, or with an approved grant.</span></div>') +
+    (c.notes ? '<div class="card-row"><span class="ic">' + ICONS.clip + '</span><span class="val note">' + esc(c.notes) + "</span></div>" : "") +
+    '<div class="pills">' + pills + "</div>" + bar +
     "</article>";
 }
 
@@ -805,14 +847,15 @@ document.addEventListener("click", function (e) {
     case "close-dialog": closeDialog(); break;
     case "open-call": c = Store.call(id); if (c) openDialog(callDetailHTML(c)); break;
     case "interstate": toast("Interstate button is a placeholder in this prototype — it sends nothing."); break;
-    case "backup-request": r = Store.requestBackup(id); toast(r.ok ? "Backup requested — everyone alerted." : r.error); render(); if (r.ok) { c = Store.call(id); if (c) openDialog(callDetailHTML(c)); } break;
-    case "backup-clear": r = Store.clearBackup(id); toast(r.ok ? "Backup cleared." : r.error); render(); c = Store.call(id); if (c && r.ok) openDialog(callDetailHTML(c)); break;
-    case "unassign": r = Store.unassign(id, el.dataset.user); toast(r.ok ? "Member unassigned." : r.error); render(); c = Store.call(id); if (c && r.ok) openDialog(callDetailHTML(c)); break;
+    case "backup-request": r = Store.requestBackup(id); toast(r.ok ? "Backup requested — everyone alerted." : r.error); render(); if (r.ok && $("#dlg").open) { c = Store.call(id); if (c) openDialog(callDetailHTML(c)); } break;
+    case "backup-clear": r = Store.clearBackup(id); toast(r.ok ? "Backup cleared." : r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
+    case "unassign": r = Store.unassign(id, el.dataset.user); toast(r.ok ? "Member unassigned." : r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
     case "put-out": r = Store.putOutDraft(id); toast(r.ok ? "Draft put out — alert sent." : r.error); closeDialog(); render(); break;
     case "delete-draft":
       if (confirm("Delete this draft call?")) { r = Store.deleteDraft(id); toast(r.ok ? "Draft deleted." : r.error); closeDialog(); render(); }
       break;
     case "reopen": r = Store.reopenCall(id); toast(r.ok ? "Call reopened — responses, assignments and equipment stay as they were." : r.error); closeDialog(); render(); break;
+    case "correct-call": r = Store.closeCorrect(id); toast(r.ok ? "Call closed as Corrected." : r.error); render(); break;
     case "request-callback": r = Store.requestHidden(id, ["phone"]); toast(r.ok ? "Request sent — a dispatcher must approve it." : r.error); break;
     case "request-hidden": r = Store.requestHidden(id, ["name", "phone"]); toast(r.ok ? "Request sent — a dispatcher must approve it." : r.error); break;
     case "approve-request": {
@@ -820,7 +863,7 @@ document.addEventListener("click", function (e) {
       r = Store.approveHidden(id, mins); toast(r.ok ? "Request approved." : r.error); render(); break;
     }
     case "deny-request": r = Store.denyHidden(id); toast(r.ok ? "Request denied." : r.error); render(); break;
-    case "checkout": r = Store.checkoutEquipment(el.dataset.item, id); toast(r.ok ? "Equipment checked out on this call." : r.error); render(); c = Store.call(id); if (c && r.ok) openDialog(callDetailHTML(c)); break;
+    case "checkout": r = Store.checkoutEquipment(el.dataset.item, id); toast(r.ok ? "Equipment checked out on this call." : r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
     case "return-equipment": r = Store.returnEquipment(el.dataset.item); toast(r.ok ? "Equipment returned to stock." : r.error); render(); break;
     case "loan-step": r = Store.advanceLoan(id, el.dataset.step); toast(r.ok ? "Loan marked " + el.dataset.step + "." : r.error); render(); break;
     case "eta-location": {

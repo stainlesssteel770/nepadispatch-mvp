@@ -21,9 +21,9 @@ State in `localStorage` (`dispatch-mvp-` prefix) behind the single
   hiding in this prototype run in the browser only. If you add a
   rule, say in the code and in `PROJECT_HANDOFF.md` whether it is
   UI-only or server-enforced.
-- **Do not push to GitHub, create a repo, or add Firebase** until the
-  owner approves that stage. GitHub was not connected when this
-  prototype was built.
+- **Do not push to GitHub or add Firebase from this tree on your
+  own** — the parent agent pushes after verifying. The repo is
+  stainlesssteel770/nepadispatch-mvp (public, Pages live).
 
 ## Conventions
 
@@ -52,7 +52,10 @@ State in `localStorage` (`dispatch-mvp-` prefix) behind the single
 ```sh
 python3 -m http.server 8123   # serve locally, open http://127.0.0.1:8123/
 node --check app.js seed.js   # syntax check
-node tests/smoke.mjs          # browser smoke tests (needs puppeteer-core + CHROME_PATH)
+node tests/smoke.mjs          # browser smoke tests (needs puppeteer-core + CHROME_PATH;
+                              # puppeteer-core is NOT installed here — symlink it in first, e.g.
+                              # ln -s ~/workspace/steady/tests/node_modules/puppeteer-core node_modules/puppeteer-core,
+                              # and remove node_modules/ again before pushing)
 ```
 
 ## Files

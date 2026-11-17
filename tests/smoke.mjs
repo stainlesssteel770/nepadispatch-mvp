@@ -127,10 +127,14 @@ await page.evaluate(() => {
   if (c) c.querySelector('[data-action="open-call"]').click();
 });
 await sleep(300);
-await clickAction("backup-request", { id: "c2" });
+// click the backup buttons inside the open dialog (the card's own bell
+// sits under the modal overlay while the dialog is open)
+await page.evaluate(() => { document.querySelector('#dlg-body [data-action="backup-request"]').click(); });
+await sleep(300);
 t = await page.evaluate(() => document.body.innerText);
 check("backup request alerts + badge", t.includes("BACKUP NEEDED") || t.includes("Backup requested"));
-await clickAction("backup-clear", { id: "c2" });
+await page.evaluate(() => { document.querySelector('#dlg-body [data-action="backup-clear"]').click(); });
+await sleep(300);
 await page.click('[data-action="close-dialog"]').catch(() => {});
 
 // 6. Draft put out (c3)
@@ -222,6 +226,36 @@ await page.reload({ waitUntil: "networkidle0" });
 await sleep(400);
 const persistOk = await page.evaluate(() => DispatchStore.state.calls.length === 5);
 check("state persists across reload", persistOk);
+
+// 11. One-tap Correct button (state is fresh seed again: c1 open with
+// equipment out, c2 open with nothing out; signed in as dispatcher)
+// (a) open call with no equipment out -> closed as Corrected, one tap
+await setRole("u-disp");
+await clickAction("tab", { tab: "calls" });
+const correctVisible = await page.evaluate(() => [...document.querySelectorAll('[data-action="correct-call"]')].length);
+check("Correct button shown to dispatcher on open calls", correctVisible === 2, "count=" + correctVisible);
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+const correctOk = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "closed" && c.outcome === "Corrected"; });
+check("one tap Correct closes call as Corrected", correctOk);
+t = await page.evaluate(() => document.querySelector("#toast").innerText);
+check("Correct confirmation shown", /closed as Corrected/.test(t), t);
+// (b) call with equipment out stays open with the return-equipment message
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+t = await page.evaluate(() => document.querySelector("#toast").innerText);
+const stillOpen = await page.evaluate(() => DispatchStore.call("c1").status === "open");
+check("Correct blocked while equipment out, call stays open", stillOpen && /Equipment must be returned/.test(t), t);
+// (c) Correct hidden for members (hide, don't disable)
+await setRole("u-m4");
+const correctHidden = await page.evaluate(() => [...document.querySelectorAll('[data-action="correct-call"]')].length);
+check("Correct button hidden for members", correctHidden === 0, "count=" + correctHidden);
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 

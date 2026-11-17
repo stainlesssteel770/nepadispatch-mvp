@@ -3,9 +3,15 @@
 ## Status
 
 Built 2026-11-17 as a static GitHub Pages prototype (Stage 0 + core
-call lifecycle) in `~/workspace/dispatch-mvp/`. No code has been pushed,
-no GitHub repo created, no deployment, no Firebase. GitHub was not
-connected at build time.
+call lifecycle) in `~/workspace/dispatch-mvp/`. Pushed to
+stainlesssteel770/nepadispatch-mvp (commit a63d3850) and live at
+https://stainlesssteel770.github.io/nepadispatch-mvp/ (repo public,
+Pages built). No Firebase.
+
+Polish pass 2026-11-17 (same day, not yet pushed — parent pushes
+after verifying): visual redesign to the dark-navy reference card
+plus the one-tap Correct button. See "Polish pass — 2026-11-17"
+below.
 
 ## Architecture
 
@@ -156,17 +162,95 @@ localStorage, with “Reset to fake seed data”, “Clear all my data”
 ## What was tested
 
 Smoke suite `tests/smoke.mjs`, headless Chrome (puppeteer-core),
-390×844 mobile viewport, served over local HTTP. **23/23 passed**
-on 2026-11-17: home render + warning; role switcher; caller hidden
-for a non-responding member; caller visible with tap-to-call after
-responding; new call with own data through the summary step; duplicate
-submit returns the existing record; close blocked while equipment is
-out, then succeeds after return; backup request/clear; draft put out;
-hidden-data request → 30-min approval → member sees caller on the
-closed call; manage adds (nature, address, vehicle, equipment);
-JSON export parses; clear-all-my-data empties calls + equipment;
-reset-to-seed restores the seed; state persists across reload; no
-page errors. `node --check` clean on `app.js` and `seed.js`.
+390×844 mobile viewport, served over local HTTP. **28/28 passed**
+on 2026-11-17 after the polish pass (was 23/23 before it): home
+render + warning; role switcher; caller hidden for a non-responding
+member; caller visible with tap-to-call after responding; new call
+with own data through the summary step; duplicate submit returns the
+existing record; close blocked while equipment is out, then succeeds
+after return; backup request/clear; draft put out; hidden-data
+request → 30-min approval → member sees caller on the closed call;
+manage adds (nature, address, vehicle, equipment); JSON export
+parses; clear-all-my-data empties calls + equipment; reset-to-seed
+restores the seed; state persists across reload; **one-tap Correct:
+button shown to dispatcher on the 2 open calls, one tap closes
+INC-1043 as Corrected with confirmation, Correct on INC-1042 (jack
+out) leaves the call open with the return-equipment message, Correct
+hidden for members (0 buttons)**; no page errors. `node --check`
+clean on `app.js` and `seed.js`.
+
+Two failures appeared on the first post-polish run and were fixed,
+both in the new work, not in the old flows: (1) the redesigned card
+had dropped the caller *name* (number only) — restored, so roles
+allowed to see the caller see name + phone on the card; (2) the
+smoke test clicked the card's bell button while the call dialog was
+open, so the click landed on the modal overlay — the test now clicks
+the backup buttons inside the dialog. No app behaviour was changed
+for (2) beyond the dialog-reopen guard (see below).
+
+Test-run note: `tests/smoke.mjs` imports `puppeteer-core`, which is
+not installed in this repo. For the 2026-11-17 run it was resolved
+via a temporary symlink
+`node_modules/puppeteer-core -> ~/workspace/steady/tests/node_modules/puppeteer-core`,
+removed afterwards to keep the tree clean. Re-create that symlink
+(or `npm install puppeteer-core`) before running the suite again.
+
+## Polish pass — 2026-11-17 (visual redesign + Correct button)
+
+Owner feedback: "very good first prototype, but it looks very ugly"
+and a one-click button on each call to close it out as Corrected
+was missing. Design model: the owner's reference screenshot of the
+other app's call card (layout only — its address, phone number and
+vehicle were NOT copied into seed data). Guiding principle from the
+owner: smooth and sleek, simple and easy to use.
+
+Visual changes (`styles.css`, plus `callCard()` in `app.js`):
+- Call cards are dark navy with a blue right edge (red if urgent,
+  amber if backup needed), large bold address top-left with a pin
+  icon, incident + time top-right, icon-led rows for what/vehicle
+  (vehicle in caps), caller name + tap-to-call number, and notes.
+- Responders are white pill chips with blue text; "No one yet" is a
+  dim pill. Status pills are distinct per status (open blue, draft
+  grey, closed green, urgent red, backup amber).
+- Bottom action bar on each card, thumb-sized icon segments with
+  short labels: Open (person+ icon, opens the call detail),
+  Backup (bell — requests backup, or clears it when already
+  needed), Correct (green checkmark, dispatcher/coordinator only),
+  Call (phone — tap-to-call, only when the role may see the caller),
+  Maps (opens the address in Google Maps, new tab; uses the call's
+  saved Maps link when one exists). All icons are inline SVG —
+  no network, no emoji.
+- Smooth and sleek throughout: generous rounded corners (18px
+  cards, pill tabs/buttons), soft shadows, consistent spacing,
+  subtle 0.15s transitions on taps and tab changes, sticky navy
+  header, 44px+ tap targets, focus outlines. No new screens, no
+  extra options — if a flourish fought simplicity, simplicity won.
+- The "PROTOTYPE — FAKE DATA ONLY" warning is unchanged.
+
+One-tap Correct (`Store.closeCorrect()`, one line over
+`closeCall(id, "Corrected")`):
+- On each OPEN call card, a prominent green "✓ Correct" segment in
+  the action bar. Visible ONLY to dispatcher and coordinator
+  (`Store.can("close")`); hidden for members, inventory manager
+  (member role) and super admin, per hide-don't-disable.
+- One tap closes the call with outcome Corrected — no dialog, no
+  extra steps. Shows "Call closed as Corrected." and the call moves
+  to closed; reopen stays available if it was a mistake.
+- Equipment-out case: if equipment is still out on the call, the
+  tap does NOT close it — the toast shows "Equipment must be
+  returned before closing: <item names>" (the decided
+  return-before-close rule, enforced by the same `closeCall`).
+- The full close dialogue (all 7 outcomes) is unchanged for other
+  outcomes.
+
+Behaviour change to note (dialog vs card actions): backup,
+unassign and equipment-checkout handlers used to re-open the call
+dialog after every tap. Card-bar taps now only refresh the dialog
+if it is already open, so tapping the bell on a card stays on the
+list instead of popping the dialog open. Dialog-originated taps
+behave exactly as before. No decided rule changed; every existing
+test selector/ID is stable (the card's "Open call" action kept its
+`data-action="open-call"`).
 
 ## What was NOT tested
 
