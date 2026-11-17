@@ -513,6 +513,11 @@ var ICONS = {
 // icon-led rows (what / phone / notes), responder pills, then a
 // 5-icon action bar — Add, Backup, Correct, Call, Maps. Only the
 // actions the signed-in role may use are shown (hide, don't disable).
+// Card colour (open calls only): neutral = open and uncovered,
+// red = urgent and uncovered, blue = covered and not urgent,
+// red + COVERED badge + blue pills = urgent and covered (urgent wins,
+// the blue signal says others are already responding). Draft and
+// closed cards keep the plain dark treatment.
 // The whole card is tappable: tapping anywhere on the card body opens
 // the call detail (the card itself carries data-action="open-call");
 // taps on action-bar buttons/links keep their own behaviour — the
@@ -522,8 +527,10 @@ function callCard(c) {
   var isOpen = c.status === "open";
   var responding = Store.isResponding(c, me.id);
   var canSee = Store.canSeeCaller(c, me.id);
+  var covered = isOpen && c.responders.length > 0;
   var badges = [];
   if (c.urgent) badges.push('<span class="badge urgent">URGENT</span>');
+  if (covered) badges.push('<span class="badge covered">COVERED</span>');
   if (c.backupNeeded) badges.push('<span class="badge backup">BACKUP NEEDED</span>');
   if (c.status === "draft") badges.push('<span class="badge draft">DRAFT</span>');
   if (c.status === "closed") badges.push('<span class="badge closed">CLOSED — ' + esc(c.outcome || "") + '</span>');
@@ -548,7 +555,12 @@ function callCard(c) {
     bar += '<a class="bar-seg" href="tel:' + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + '" aria-label="Call the caller back">' + ICONS.phone + "<span>Call</span></a>";
   }
   bar += '<a class="bar-seg" href="' + esc(mapsUrl) + '" target="_blank" rel="noopener" aria-label="Open address in Maps">' + ICONS.route + "<span>Maps</span></a></div>";
-  return '<article class="card call-card' + (c.urgent && isOpen ? " urgent" : "") + (c.backupNeeded ? " backup" : "") + '" data-action="open-call" data-id="' + c.id + '" tabindex="0" role="button" aria-label="Open ' + esc(c.incident) + ' — ' + esc(c.nature) + '">' +
+  var stateClass = "";
+  if (isOpen) {
+    if (c.urgent) stateClass = covered ? " card-urgent-covered" : " card-urgent";
+    else stateClass = covered ? " card-covered" : " card-neutral";
+  }
+  return '<article class="card call-card' + stateClass + (c.backupNeeded ? " backup" : "") + '" data-action="open-call" data-id="' + c.id + '" tabindex="0" role="button" aria-label="Open ' + esc(c.incident) + ' — ' + esc(c.nature) + '">' +
     '<div class="card-head"><div class="card-addr"><span class="pin">' + ICONS.pin + "</span>" + esc(c.address) + '</div>' +
     '<div class="card-inc">' + esc(c.incident) + '<span class="time">' + esc(time) + "</span></div>" +
     '<span class="card-chev" aria-hidden="true">' + ICONS.chev + "</span></div>" +

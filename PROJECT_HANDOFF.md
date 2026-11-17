@@ -12,7 +12,9 @@ Polish pass 2026-11-17 (same day): visual redesign to the dark-navy reference ca
 
 Card-tap fix 2026-11-17 (same day): the whole call card is now tappable, and the first action-bar segment is Add member instead of Open. PUSHED 2026-11-17 (commit 485ad9bf) and live-verified — live app.js and styles.css byte-match local (md5). See "Card-tap fix — 2026-11-17" below.
 
-Instinct findings batch 2026-11-17 (same day, not yet pushed — parent pushes after verifying): 15 fixes from Instinct's phone-width test of the live v2 prototype (full matrix at https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings). See "Instinct findings batch — 2026-11-17" below.
+Instinct findings batch 2026-11-17 (same day): 15 fixes from Instinct's phone-width test of the live v2 prototype (full matrix at https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings). PUSHED 2026-11-17 (commit da2e3419) and live-verified — live app.js and styles.css byte-match local (md5), `parseETA` present. See "Instinct findings batch — 2026-11-17" below.
+
+Card colors 2026-11-17 (same day, not yet pushed — parent pushes after verifying): the owner's decision on the open question — urgent stays visually urgent, but the card also shows others are responding. Rule for open calls: neutral (white) when uncovered and not urgent, red when urgent and uncovered, blue when covered and not urgent, red + blue COVERED badge + blue responder pills when urgent and covered (urgent wins). See "Card colors — 2026-11-17" below.
 
 ## Architecture
 
@@ -167,8 +169,9 @@ localStorage, with “Reset to fake seed data”, “Clear all my data”
 ## What was tested
 
 Smoke suite `tests/smoke.mjs`, headless Chrome (puppeteer-core),
-390×844 mobile viewport, served over local HTTP. **67/67 passed**
-on 2026-11-17 after the Instinct findings batch (was 36/36 after the
+390×844 mobile viewport, served over local HTTP. **74/74 passed**
+on 2026-11-17 after the card-colors change (was 67/67 after the
+Instinct findings batch, 36/36 after the
 card-tap fix, 28/28 after the polish pass, 23/23 before it): home render + warning; role switcher; caller hidden for a non-responding
 member; caller visible with tap-to-call after responding; new call
 with own data through the summary step; duplicate submit returns the
@@ -338,7 +341,7 @@ https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings)
 and sent 17 findings. 15 are fixed here; 2 were confirmed intended
 (see "Left as intended" below). All fixes are in `app.js`,
 `styles.css`, and `tests/smoke.mjs` (new section 13, one check per
-item). Smoke suite is now **67/67**.
+item). Smoke suite is now **74/74** (section 14 covers the four card-color states).
 
 1. **Error toasts hidden behind dialogs.** The call dialog is a
    native `<dialog>` (top layer — no z-index can put a toast above
@@ -432,6 +435,45 @@ Left as intended (verified, no change):
   (reset/clear/import/delete/nature/address/fleet renames) — those
   were blocked in Instinct's testing and are still untested on a
   device.
+
+## Card colors — 2026-11-17 (urgent wins, covered still shows)
+
+Owner decision resolving the open question from Instinct's findings:
+an urgent call must stay visually urgent, but the card must also show
+that others are already responding. Decided rule, for OPEN calls
+("covered" = currently has ≥1 responder):
+
+- Open, not urgent, no responders: NEUTRAL card (white, dark text).
+- Open, urgent, no responders: RED card (deep red, white text).
+- Open, covered, not urgent: BLUE card (strong blue, white text).
+- Open, urgent AND covered: the card STAYS RED (urgent wins — it
+  must still read as urgent at a glance) AND gains a blue COVERED
+  badge plus solid-blue responder pills, so covered is unmistakable.
+- Draft and closed cards: unchanged — they keep the plain dark
+  treatment from the polish pass.
+
+Implemented in `callCard()` (`app.js`): the state is derived from
+`c.urgent` and `c.responders.length` into distinct classes
+(`card-neutral` / `card-urgent` / `card-covered` /
+`card-urgent-covered`) plus a `.badge.covered` (blue; white-on-blue
+on the blue card). The URGENT badge stays on all urgent cards; the
+chevron, action bar, tap-to-open behaviour, and backup edge are
+unchanged. No decided rule changed.
+
+Tested in `tests/smoke.mjs` section 14 (7 new checks, 74/74 total
+passed in headless Chrome at 390×844): plain open call is neutral
+with no badges; urgent uncovered is red with URGENT and no COVERED;
+covered non-urgent is blue with COVERED and no URGENT; urgent +
+covered stays red with both badges and blue pills (computed
+`rgb(37, 99, 235)`); draft and closed cards carry no state class.
+
+Harness note: after a `page.reload()` Chrome restores the old scroll
+position, and the sticky header then covers the tab buttons — a CDP
+click lands on the header, not the tab (same family as the
+toast-UNDO/tab-bar tap-interception lessons). Section 14 scrolls to
+the top (`window.scrollTo(0, 0)`) before tab clicks. This is a test
+harness artifact, not an app bug: a real user scrolls the tabs back
+into view before tapping.
 
 ## What was NOT tested
 

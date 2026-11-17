@@ -1,8 +1,10 @@
 /* Dispatch MVP — polished mobile-first styles.
-   Visual model (layout only, no data copied): dark navy call cards,
-   icon-led rows, large address type, white responder pills, a clear
-   action row. Page stays light so cards stand out; header is deep
-   navy; status is shown with distinct pills. */
+   Visual model (layout only, no data copied): call cards in four
+   states (neutral white / urgent red / covered blue / urgent+covered
+   red with a blue COVERED badge and blue pills), icon-led rows, large
+   address type, responder pills, a clear action row. Page stays light
+   so cards stand out; header is deep navy; status is shown with
+   distinct pills. */
 * { box-sizing: border-box; }
 :root {
   --navy: #16233f;
@@ -54,8 +56,56 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 
 /* ----- call cards (dark navy, reference layout) ----- */
 .card { background: var(--card); color: var(--card-ink); border: 1px solid #2a3c63; border-radius: var(--radius); padding: 16px 16px 14px; margin: 12px 0; box-shadow: 0 6px 18px rgba(10, 20, 40, .22); border-right: 6px solid var(--accent); transition: box-shadow .18s ease, transform .18s ease; }
-.card.urgent { border-right-color: var(--red); }
 .card.backup { border-right-color: var(--amber); }
+/* ----- call-card states (open calls only; draft/closed keep the
+   plain dark card above). Urgent wins over covered: an urgent +
+   covered call stays red, with a blue COVERED badge and blue pills. */
+.card-neutral { background: #fff; color: var(--ink); border-color: var(--line); border-right-color: #9aa5b1; box-shadow: 0 2px 8px rgba(10, 20, 40, .08); }
+.card-neutral .card-addr { color: var(--ink); }
+.card-neutral .card-addr .pin { color: var(--accent); }
+.card-neutral .card-inc { color: var(--ink); }
+.card-neutral .card-inc .time { color: var(--mute); }
+.card-neutral .card-row .val { color: var(--ink); }
+.card-neutral .card-row .val strong { color: var(--ink); }
+.card-neutral .card-row .val.dim { color: var(--mute); }
+.card-neutral .card-row .ic { color: var(--accent); }
+.card-neutral .card-chev { color: var(--mute); }
+.card-neutral .pill.dim { color: var(--mute); border-color: #c3cad4; }
+.card-neutral .card-bar { border-top-color: var(--line); background: #f2f5f9; }
+.card-neutral .bar-seg { border-right-color: var(--line); color: var(--mute); }
+.card-neutral .bar-seg:hover { color: var(--ink); background: rgba(10, 20, 40, .05); }
+.card-neutral .bar-seg:active { background: rgba(10, 20, 40, .08); }
+.card-neutral a { color: var(--accent); }
+.card-urgent, .card-urgent-covered { background: #c02418; color: #fff; border-color: #9c1c12; border-right-color: #7a1f16; }
+.card-urgent .card-addr, .card-urgent-covered .card-addr { color: #fff; }
+.card-urgent .card-addr .pin, .card-urgent-covered .card-addr .pin,
+.card-urgent .card-row .ic, .card-urgent-covered .card-row .ic { color: #ffd9d4; }
+.card-urgent .card-inc, .card-urgent-covered .card-inc { color: #fff; }
+.card-urgent .card-inc .time, .card-urgent-covered .card-inc .time,
+.card-urgent .card-row .val.dim, .card-urgent-covered .card-row .val.dim,
+.card-urgent .card-chev, .card-urgent-covered .card-chev { color: #ffd9d4; }
+.card-urgent .pill, .card-urgent-covered .pill { background: #fff; color: #c02418; border-color: #fff; }
+.card-urgent .pill.dim, .card-urgent-covered .pill.dim { background: transparent; color: #ffd9d4; border-color: rgba(255, 255, 255, .5); }
+.card-urgent .card-bar, .card-urgent-covered .card-bar { border-top-color: rgba(255, 255, 255, .3); background: rgba(0, 0, 0, .18); }
+.card-urgent .bar-seg, .card-urgent-covered .bar-seg { border-right-color: rgba(255, 255, 255, .25); color: #ffd9d4; }
+.card-urgent .bar-seg:hover, .card-urgent-covered .bar-seg:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+.card-urgent a, .card-urgent-covered a { color: #fff; }
+.card-covered { background: #1d4ed8; color: #fff; border-color: #1e40af; border-right-color: #1e3a8a; }
+.card-covered .card-addr { color: #fff; }
+.card-covered .card-addr .pin, .card-covered .card-row .ic { color: #bfdbfe; }
+.card-covered .card-inc { color: #fff; }
+.card-covered .card-inc .time, .card-covered .card-row .val.dim, .card-covered .card-chev { color: #bfdbfe; }
+.card-covered .pill { background: #fff; color: #1d4ed8; border-color: #fff; }
+.card-covered .pill.dim { background: transparent; color: #bfdbfe; border-color: rgba(255, 255, 255, .5); }
+.card-covered .card-bar { border-top-color: rgba(255, 255, 255, .3); background: rgba(0, 0, 0, .15); }
+.card-covered .bar-seg { border-right-color: rgba(255, 255, 255, .25); color: #dbeafe; }
+.card-covered .bar-seg:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+.card-covered a { color: #fff; }
+/* Urgent + covered: the blue covered signal on a red card — blue
+   COVERED badge and solid blue responder pills. */
+.card-urgent-covered .pill { background: #2563eb; color: #fff; border-color: #2563eb; }
+/* On a blue card the COVERED badge is white-on-blue so it still reads. */
+.card-covered .badge.covered { background: #fff; color: #1d4ed8; }
 .card h3 { color: #fff; font-size: 1.05rem; }
 .card .muted { color: var(--card-mute); }
 .card a { color: #9db8ff; }
@@ -70,7 +120,7 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 /* call cards are tappable: the whole card opens the call detail */
 .card.call-card { cursor: pointer; }
 .card.call-card:active { transform: scale(.995); box-shadow: 0 3px 10px rgba(10, 20, 40, .25); }
-.card.call-card:focus-visible { outline: 2px solid #9db8ff; outline-offset: 2px; }
+.card.call-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card-chev { color: var(--card-mute); align-self: center; flex: 0 0 auto; }
 .card-chev svg { width: 22px; height: 22px; }
 /* call-card header row: big address left, incident + time right */
@@ -107,6 +157,7 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 /* ----- badges / status pills ----- */
 .badge { display: inline-block; font-size: .72rem; font-weight: 800; letter-spacing: .03em; padding: 3px 9px; border-radius: 999px; background: #e6ebf2; color: var(--ink); margin: 2px 4px 2px 0; text-transform: uppercase; }
 .badge.urgent { background: var(--red); color: #fff; }
+.badge.covered { background: #2563eb; color: #fff; }
 .badge.backup { background: var(--amber); color: var(--amber-ink); }
 .badge.draft { background: #8a94a6; color: #fff; }
 .badge.closed { background: var(--green); color: #fff; }

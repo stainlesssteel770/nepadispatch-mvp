@@ -573,6 +573,58 @@ await setRole("u-super");
 const tabsText = await page.$$eval("#tabs button", (b) => b.map((x) => x.innerText).join("|"));
 check("no-change: super admin has no New call or Requests tab", !tabsText.includes("New call") && !tabsText.includes("Requests"), tabsText);
 
+// 14. Card colors (decided rule): neutral = open + uncovered,
+// red = urgent + uncovered, blue = covered + not urgent,
+// red + COVERED badge + blue pills = urgent + covered (urgent wins).
+// Draft/closed keep the plain dark card.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await setRole("u-disp");
+// (a) plain open call, created fresh: no responders, not urgent
+const plain = await page.evaluate(() => {
+  const r = DispatchStore.createCall({ nature: "Other", address: "9 Plain St, Kingston, PA", callerName: "Plain Person", callerPhone: "555-0111" }, "key-plain-1");
+  return r.ok ? r.call.incident : ("ERR:" + r.error);
+});
+// Scroll to top before tab clicks: after a reload Chrome restores the
+// old scroll position, and the sticky header then covers the tab
+// buttons — a CDP click lands on the header, not the tab.
+const gotoCallsTab = async () => { await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100); await clickAction("tab", { tab: "calls" }); };
+await gotoCallsTab();
+const cardInfo = async (inc) => await page.evaluate((i) => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes(i));
+  if (!c) return null;
+  const pill = c.querySelector(".pills .pill:not(.dim)");
+  return {
+    cls: [...c.classList],
+    urgent: !!c.querySelector(".badge.urgent"),
+    covered: !!c.querySelector(".badge.covered"),
+    pillBg: pill ? getComputedStyle(pill).backgroundColor : null,
+  };
+}, inc);
+let ci = await cardInfo(plain);
+check("14a: plain open call is neutral, no URGENT/COVERED badge", ci && ci.cls.includes("card-neutral") && !ci.urgent && !ci.covered, JSON.stringify(ci));
+ci = await cardInfo("INC-1043");
+check("14b: urgent uncovered call is red with URGENT badge, no COVERED", ci && ci.cls.includes("card-urgent") && ci.urgent && !ci.covered, JSON.stringify(ci));
+ci = await cardInfo("INC-1042");
+check("14c: covered non-urgent call is blue with COVERED badge, no URGENT", ci && ci.cls.includes("card-covered") && ci.covered && !ci.urgent, JSON.stringify(ci));
+// (d) urgent + covered: a member responds to INC-1043
+await setRole("u-m4");
+await page.evaluate(() => { DispatchStore.respond("c2", "10 min"); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await gotoCallsTab();
+ci = await cardInfo("INC-1043");
+check("14d: urgent + covered call stays red, carries URGENT + COVERED badges", ci && ci.cls.includes("card-urgent-covered") && ci.urgent && ci.covered, JSON.stringify(ci));
+check("14d: urgent + covered responder pills are blue", ci && ci.pillBg === "rgb(37, 99, 235)", "pillBg=" + (ci && ci.pillBg));
+// draft and closed keep the plain dark treatment (no state class)
+const stateClasses = ["card-neutral", "card-urgent", "card-covered", "card-urgent-covered"];
+ci = await cardInfo("INC-1044");
+check("14e: draft card keeps the plain treatment, no state class", ci && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
+ci = await cardInfo("INC-1039");
+check("14e: closed card keeps the plain treatment, no state class", ci && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
+
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 
 const failed = results.filter((r) => !r[1]).length;
