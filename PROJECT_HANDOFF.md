@@ -12,6 +12,8 @@ Polish pass 2026-11-17 (same day): visual redesign to the dark-navy reference ca
 
 Card-tap fix 2026-11-17 (same day): the whole call card is now tappable, and the first action-bar segment is Add member instead of Open. PUSHED 2026-11-17 (commit 485ad9bf) and live-verified — live app.js and styles.css byte-match local (md5). See "Card-tap fix — 2026-11-17" below.
 
+Instinct findings batch 2026-11-17 (same day, not yet pushed — parent pushes after verifying): 15 fixes from Instinct's phone-width test of the live v2 prototype (full matrix at https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings). See "Instinct findings batch — 2026-11-17" below.
+
 ## Architecture
 
 Plain HTML/CSS/JS, no build step, no framework, no network calls.
@@ -33,7 +35,7 @@ Plain HTML/CSS/JS, no build step, no framework, no network calls.
   - **UI**: tab rendering per role, call detail dialog, forms. All
     persistence goes through Store; UI never touches localStorage
     directly.
-- `tests/smoke.mjs` — 36 headless-browser checks (puppeteer-core).
+- `tests/smoke.mjs` — 67 headless-browser checks (puppeteer-core).
 
 ## Data model (Store.state)
 
@@ -72,6 +74,8 @@ Returned → Closed. One active checkout per item, checked in the Store.
 Hidden data: member requests name+phone (callback-number-only while a
 call is open) → any dispatcher approves with a duration (15 min /
 30 min / 1 hr / forever) → grant is active until expiry → access ends.
+After a call closes, even past responders need an unexpired grant to
+see the caller (decided 2026-11-17, Instinct findings batch).
 Requests and grants are logged and visible to the coordinator.
 
 ## Permission matrix (as built)
@@ -82,7 +86,7 @@ Requests and grants are logged and visible to the coordinator.
 | Create / put out / close / reopen / unassign calls | N | Y | Y | N | N |
 | Approve hidden-data requests | N | Y* | Y | N | N |
 | Respond to calls (with ETA) | N | Y | N | Y | (as member) |
-| See caller name + phone | N | Y | Y | Only while responding, or with an unexpired grant | (as member) |
+| See caller name + phone | N | Y | Y | Only while responding to an OPEN call, or with an unexpired grant; never on a closed call without a grant | (as member) |
 | Request callback number / hidden data | N | — | — | Y (approval needed) | (as member) |
 | Request / clear backup | N | Y | Y | Y if on the call | (as member) |
 | Use equipment on a call | N | Y | Y | Y if on the call | (as member) |
@@ -124,6 +128,8 @@ the owner; prompt for Instinct written at
 GitHub: stainlesssteel770 / nepadispatch-mvp — not connected at
 build time.
 
+**Added 2026-11-17 (Instinct findings batch, item 12 — judgment call, reversible on the owner's word):** after a call closes, NOBODY sees the caller name+phone without an unexpired dispatcher-approved grant — including past responders. This follows the decided rule that caller data is requestable post-close via a grant; the prototype previously let a past responder keep seeing the caller on a closed call. Dispatcher/coordinator access is unchanged. If the owner wants past responders to keep seeing it, this is a one-line change in `Store.canSeeCaller`.
+
 **Added 2026-11-17 (owner requirement):** fake seed data stays the
 starting point, but the owner can also input his own data and test
 the full call cycle with it. Everything seeded is addable, editable,
@@ -161,9 +167,9 @@ localStorage, with “Reset to fake seed data”, “Clear all my data”
 ## What was tested
 
 Smoke suite `tests/smoke.mjs`, headless Chrome (puppeteer-core),
-390×844 mobile viewport, served over local HTTP. **36/36 passed**
-on 2026-11-17 after the card-tap fix (was 28/28 after the polish
-pass, 23/23 before it): home render + warning; role switcher; caller hidden for a non-responding
+390×844 mobile viewport, served over local HTTP. **67/67 passed**
+on 2026-11-17 after the Instinct findings batch (was 36/36 after the
+card-tap fix, 28/28 after the polish pass, 23/23 before it): home render + warning; role switcher; caller hidden for a non-responding
 member; caller visible with tap-to-call after responding; new call
 with own data through the summary step; duplicate submit returns the
 existing record; close blocked while equipment is out, then succeeds
@@ -181,7 +187,40 @@ on the 2 open calls; picker opens and assigning adds a responder with
 ETA "—" plus a log entry and a responder pill; Backup tap on a card
 does NOT open the dialog; Add member hidden for members (0 buttons);
 tapping the tap-to-call number on a card does NOT open the dialog**;
-no page errors. `node --check` clean on `app.js` and `seed.js`.
+**Instinct batch (section 13): empty ETA and "banana" ETA rejected
+with an inline dialog error, "45" stored as "45 min", "1h 30m"
+stored as "1h 30m"; past responder cannot see the caller on closed
+INC-1039; loan without the checkbox shows the inline error, then
+creates; created loan shows only "Mark released", released loan only
+"Mark picked up"; close form has no pre-selected outcome and friendly
+labels ("Fixed on scene", no raw "OnTheWay"), closing with none
+picked shows the inline error and the call stays open, picking
+Corrected closes with the stored code; backup banner shows on
+request, clears from the banner and the stored alerts on clear, and
+stays clean after a full reload; first unassign tap only arms the
+confirm ("Tap again to confirm unassign"), second tap removes the
+responder; callback number is marked "* (required)"; Back to edit
+keeps every field filled; Edit draft opens the form prefilled and
+saving updates the same draft with no duplicate; member phone "123"
+rejected inline and the member is not added, a valid phone saves;
+Decided log sits in a scroll container with no page overflow
+(scrollWidth 390); Contacts shows 8 tap-to-call links; the dialog
+dismiss button reads "Cancel"; the duplicate-nature error toast is
+still visible after 4.5s; a responding member sees
+"Only a dispatcher can unassign you." with no unrespond control, and
+super admin has no New call or Requests tab**; no page errors.
+`node --check` clean on `app.js` and `seed.js`.
+
+Test-harness note (found debugging section 13): in headless Chrome,
+a real `tel:` navigation swallows all later CDP mouse input — the
+tab and submit clicks in section 13 silently stopped working after
+section 12's tap-to-call click, even though the click landed on the
+right element (verified via elementFromPoint) and JS-dispatched
+clicks still worked. The app is not at fault. Section 12(e) now
+dispatches the tap-to-call click with a one-time preventDefault so
+the browser never attempts the tel: navigation; the app's link guard
+is still exercised. Never add a real tel: click back into the suite
+without re-checking the clicks after it.
 
 Two failures appeared on the first post-polish run and were fixed,
 both in the new work, not in the old flows: (1) the redesigned card
@@ -290,6 +329,109 @@ Changes (`app.js` `callCard()` + click handler, `styles.css`):
   unassign in the call detail. This replaces the old "Open" segment
   entirely — the card tap is now the way in. The My-history "Open
   call" button (a plain button, not a card) is unchanged.
+
+## Instinct findings batch — 2026-11-17 (items 1–15)
+
+Instinct tested the live v2 prototype at phone width (fake data
+only; full matrix at
+https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings)
+and sent 17 findings. 15 are fixed here; 2 were confirmed intended
+(see "Left as intended" below). All fixes are in `app.js`,
+`styles.css`, and `tests/smoke.mjs` (new section 13, one check per
+item). Smoke suite is now **67/67**.
+
+1. **Error toasts hidden behind dialogs.** The call dialog is a
+   native `<dialog>` (top layer — no z-index can put a toast above
+   it), so errors raised while a dialog is open now render INLINE
+   inside the dialog: each dialog form has a `#dlg-error` slot near
+   its submit button, shown by `dlgError(msg, form)`; `showError`
+   picks the inline slot when a dialog is open and falls back to a
+   toast otherwise. Toasts remain only for page-level feedback.
+   Fixed for respond (no ETA), loan (no checkbox), close-form,
+   member and equipment forms, and dialog click actions
+   (backup/unassign/checkout/assign/request).
+2. **Close form.** The 7 outcome radios now show friendly labels
+   with a one-line description each ("Corrected — Fixed on scene,
+   caller is good to go", "On the way", "Needs coordinator",
+   "Interstate", "Not corrected", "Received", "Cancelled") via
+   `OUTCOME_LABELS`; the stored outcome codes are unchanged. No
+   radio is pre-selected — closing requires picking one; submitting
+   with none picked shows the inline error and the call stays open.
+   The one-tap Correct button is unchanged.
+3. **Callback number required but unmarked.** The New call field is
+   now labelled "Callback number * (required)". The 7-digit
+   validation is unchanged.
+4. **Back to edit lost the form.** The New call form now prefills
+   from `App.pendingCall`, so Back to edit returns to a filled form.
+   A manual trip to the New call tab still starts fresh (and clears
+   any in-progress draft edit).
+5. **Stale alert banner.** Root cause fixed two ways: clearing
+   backup now removes the matching backup alert from the stored
+   alerts (same on close and on re-request, which first drops any
+   stale one), AND the banner only renders alerts that are still
+   true for live state (a backup alert shows only while its call is
+   open and still needs backup). `Store.load` also prunes stale
+   backup alerts from persisted state. The only other alert kind is
+   "call" (a past event notification, not a live-state claim), so
+   no other kind has this staleness pattern.
+6. **Unassign needs confirmation.** In-app two-tap confirm (no
+   native confirm): the first tap arms the button ("Tap again to
+   confirm unassign"), the second tap removes the responder.
+7. **Drafts can be edited.** New `Store.updateDraft(callId, data,
+   status)` — same validation as createCall, edits the draft in
+   place, never creates a duplicate; "Save as draft" keeps it a
+   draft, "Put out call" puts it out with the normal alert. The
+   call detail has an "Edit draft" button (dispatcher/coordinator)
+   that opens the New call form prefilled with the draft's data.
+8. **Member phone not validated.** `addMember`/`editMember` now
+   apply the same 7+ digit rule as the callback number (a phone
+   that is entered must have at least 7 digits; empty stays
+   allowed), surfaced through the inline dialog error.
+9. **Decided log too wide.** The Requests "Decided" table (and the
+   Reports, Contacts, and Manage member tables, same pattern) is
+   wrapped in a `.table-scroll` horizontal-scroll container; no
+   column is lost and the page no longer overflows at 390px
+   (scrollWidth 390).
+10. **ETA accepts anything.** New `parseETA`: accepts a number of
+    minutes ("15", "15 min", "15m") or hours+minutes ("1h",
+    "1h 30m"); anything else ("banana", "soon") is rejected with
+    the inline error "Enter an ETA like 15 min or 1h 30m". The
+    ETA is stored and displayed normalised ("45 min", "1h 30m").
+    `Store.respond` enforces this; dispatcher-assigned members
+    still show ETA "—".
+11. **Contacts numbers not tappable.** Every member phone on
+    Contacts (and the Manage members table and My-history caller
+    line) is now a `tel:` link via `telLink()`.
+12. **Privacy on closed calls (judgment call, recorded decision).**
+    `Store.canSeeCaller` now returns false for a CLOSED call
+    unless the viewer has an unexpired approved grant — including
+    past responders. Dispatcher/coordinator access is unchanged.
+    The closed-call copy says so ("Hidden after close"). Recorded
+    in the Decision log above; reversible on the owner's word (one
+    line in `canSeeCaller`).
+13. **Three "Close" names in one dialog.** The dismiss button in
+    the call detail now reads "Cancel". The "Close this call"
+    heading and the "Close call" action are unchanged.
+14. **Toasts vanish too fast.** `toast(msg)` keeps the 3.5s
+    lifetime for success/info; `toastErr(msg)` stays 8 seconds,
+    is styled red, and any toast dismisses on tap. All error paths
+    now use `toastErr` / `showError` / `dlgError`.
+15. **Loan cards show every lifecycle button.** Each loan card now
+    shows only the NEXT action for its state (Created → Mark
+    released, Released → Mark picked up, Picked up → Mark
+    returned, Returned → Close loan, Closed → none) with a small
+    "Next: …" hint. `Store.advanceLoan` itself is unchanged.
+
+Left as intended (verified, no change):
+- A member cannot un-respond or correct their own ETA; only a
+  dispatcher can unassign (the dialog says so; smoke-checked).
+- Super admin has no New call or Requests tab — super admin is
+  purely administrative by decision (smoke-checked).
+- Not in this batch (deferred): member withdraw/correct-own-response,
+  and replacing the remaining native confirm/prompt dialogs
+  (reset/clear/import/delete/nature/address/fleet renames) — those
+  were blocked in Instinct's testing and are still untested on a
+  device.
 
 ## What was NOT tested
 

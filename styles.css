@@ -135,6 +135,8 @@ legend { font-weight: 700; font-size: .9rem; }
 .suggest button { margin-left: 6px; }
 
 /* ----- tables ----- */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 8px 0; }
+.table-scroll table { margin: 0; }
 table { width: 100%; border-collapse: collapse; font-size: .92rem; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(10, 20, 40, .06); }
 th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e3e8ef; vertical-align: top; }
 th { background: #f2f5f9; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--mute); }
@@ -142,7 +144,13 @@ th { background: #f2f5f9; font-size: .82rem; text-transform: uppercase; letter-s
 /* ----- dialog / toast / footer ----- */
 dialog { border: none; border-radius: 18px; padding: 20px; max-width: 560px; width: calc(100vw - 32px); box-shadow: 0 16px 40px rgba(10, 20, 40, .35); }
 dialog::backdrop { background: rgba(10, 20, 40, .55); }
+/* Inline dialog error: native <dialog> sits in the top layer, so a
+   toast can never appear above it — errors render here instead. */
+.dlg-error { background: #fde2e2; color: #7a1f16; border: 1px solid #f0b4b4; border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-weight: 700; }
+.req { color: var(--red); font-weight: 800; }
+.req-hint { color: var(--mute); font-weight: 600; font-size: .85rem; }
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--navy); color: #fff; padding: 12px 18px; border-radius: 12px; z-index: 20; max-width: 92vw; font-weight: 600; box-shadow: 0 8px 24px rgba(10, 20, 40, .4); }
+.toast.error { background: var(--red); }
 .foot { max-width: 760px; margin: 0 auto 24px; padding: 0 12px; color: var(--mute); font-size: .84rem; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: .96rem; }
 .kv dt { font-weight: 700; color: var(--mute); } .kv dd { margin: 0; }

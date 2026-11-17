@@ -19,7 +19,48 @@ function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function
 function nowISO() { return new Date().toISOString(); }
 function fmtDT(s) { if (!s) return "—"; var d = new Date(s); return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}); }
 function $(sel) { return document.querySelector(sel); }
-function toast(msg) { var t = $("#toast"); t.textContent = msg; t.hidden = false; setTimeout(function () { t.hidden = true; }, 3500); }
+// Toasts: success/info hide after ~3.5s; errors (toastErr) stay 8s and
+// dismiss on tap, so validation feedback is never missed.
+var toastTimer = null;
+function toast(msg, ms, isErr) {
+  var t = $("#toast");
+  t.textContent = msg; t.classList.toggle("error", !!isErr); t.hidden = false;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.hidden = true; t.classList.remove("error"); }, ms || 3500);
+}
+function toastErr(msg) { toast(msg, 8000, true); }
+// Error shown while a dialog is open: the dialog is a native <dialog>
+// (top layer — no z-index can put a toast above it), so the error
+// renders as an inline line inside the dialog instead. `scope` (a form
+// in the dialog) targets that form's own error slot; without it, the
+// first error slot in the dialog is used. Falls back to a toast when
+// no dialog is open.
+function dlgError(msg, scope) {
+  var box = null;
+  if (scope && scope.querySelector) box = scope.querySelector("#dlg-error");
+  if (!box) box = document.querySelector("#dlg #dlg-error");
+  if (box) { box.textContent = msg; box.hidden = false; return true; }
+  toastErr(msg); return false;
+}
+function showError(msg, scope) {
+  var d = $("#dlg");
+  if (d && d.open) return dlgError(msg, scope);
+  toastErr(msg);
+}
+// ETA parsing: accept minutes ("15", "15 min", "15m") or hours+minutes
+// ("1h", "1h 30m"); anything else is rejected. Returns the normalised
+// string ("15 min", "1h 30m") or null.
+function parseETA(input) {
+  var s = String(input || "").trim().toLowerCase();
+  var m = s.match(/^(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*(?:m(?:in(?:utes?|s)?)?)?)?$/);
+  if (!m) return null;
+  var h = m[1] ? parseInt(m[1], 10) : 0;
+  var min = m[2] ? parseInt(m[2], 10) : 0;
+  if (h <= 0 && min <= 0) return null;
+  if (h > 0 && min > 0) return h + "h " + min + "m";
+  if (h > 0) return h + "h";
+  return min + " min";
+}
 
 function freshSeed() {
   var s = clone(window.DISPATCH_SEED);
@@ -35,12 +76,23 @@ var Store = {
   load: function () {
     try {
       var raw = localStorage.getItem(LS_KEY);
-      if (raw) { this.state = JSON.parse(raw); return; }
+      if (raw) {
+        this.state = JSON.parse(raw);
+        // Repair persisted state: drop backup alerts whose call no
+        // longer needs backup (e.g. cleared before this fix shipped).
+        var self = this;
+        this.state.alerts = (this.state.alerts || []).filter(function (a) {
+          if (a.kind !== "backup") return true;
+          var c = self.call(a.callId);
+          return c && c.status === "open" && c.backupNeeded;
+        });
+        return;
+      }
     } catch (e) { /* corrupted storage: fall through to seed */ }
     this.state = freshSeed();
     this.save();
   },
-  save: function () { try { localStorage.setItem(LS_KEY, JSON.stringify(this.state)); } catch (e) { toast("Could not save (storage full or blocked)."); } },
+  save: function () { try { localStorage.setItem(LS_KEY, JSON.stringify(this.state)); } catch (e) { toastErr("Could not save (storage full or blocked)."); } },
   resetToSeed: function () { this.state = freshSeed(); this.save(); },
   // Clear all user-entered data: blank slate (calls, equipment, fleet,
   // addresses, loans, requests, alerts all gone). Users stay so the
@@ -99,11 +151,15 @@ var Store = {
     }) || null;
   },
   // Caller name/phone visible to: dispatcher/coordinator always; a member
-  // only while responding to that call, or with an unexpired approved grant.
+  // only while responding to an OPEN call, or with an unexpired approved
+  // grant. Once a call is CLOSED, nobody sees the caller without an
+  // unexpired grant — including past responders (decided 2026-11-17,
+  // Instinct findings batch; reversible on the owner's word).
   // Super admin (admin-only) does NOT see caller details.
   canSeeCaller: function (call, userId) {
     var me = this.user(userId); if (!me) return false;
     if (me.role === "dispatcher" || me.role === "coordinator") return true;
+    if (call.status === "closed") return !!this.activeGrant(call.id, userId);
     if (me.role === "member" && this.isResponding(call, userId)) return true;
     if (this.activeGrant(call.id, userId)) return true;
     return false;
@@ -156,13 +212,39 @@ var Store = {
     this.log(inc + " draft deleted by " + this.me().name); this.save();
     return { ok: true };
   },
+  // Edit a draft in place (same validation as createCall). Status can
+  // stay "draft" or move to "open" (put out — sends the normal alert).
+  // Never creates a second call.
+  updateDraft: function (callId, data, status) {
+    var c = this.call(callId);
+    if (!c || c.status !== "draft") return { ok: false, error: "Only a draft can be edited." };
+    if (!data.nature || !data.address || !data.callerName) return { ok: false, error: "Call nature, address and caller name are required." };
+    var digits = (data.callerPhone || "").replace(/\D/g, "");
+    if (digits.length < 7) return { ok: false, error: "Enter a valid callback number (at least 7 digits)." };
+    c.nature = data.nature; c.address = data.address; c.vehicle = data.vehicle || "";
+    c.callerName = data.callerName; c.callerPhone = data.callerPhone;
+    c.notes = data.notes || ""; c.coordinates = data.coordinates || ""; c.mapsLink = data.mapsLink || "";
+    c.urgent = !!data.urgent; c.notify = data.notify !== false;
+    if (data.saveAddress && this.state.savedAddresses.indexOf(data.address) === -1) this.state.savedAddresses.push(data.address);
+    if (status === "open") {
+      c.status = "open";
+      if (c.notify) this.state.alerts.unshift({ id: uid("a"), callId: c.id, kind: "call", urgent: c.urgent,
+        text: "New call " + c.incident + ": " + c.nature + " at " + c.address, at: nowISO() });
+      this.log(c.incident + " edited and put out by " + this.me().name);
+    } else {
+      this.log(c.incident + " draft edited by " + this.me().name);
+    }
+    this.save();
+    return { ok: true, call: c };
+  },
   respond: function (callId, eta) {
     var c = this.call(callId); if (!c) return { ok: false, error: "Call not found." };
     if (c.status !== "open") return { ok: false, error: "Only an open call can be responded to." };
-    if (!eta || !eta.trim()) return { ok: false, error: "Enter an ETA first — responding needs an ETA." };
+    var parsed = parseETA(eta);
+    if (!parsed) return { ok: false, error: "Enter an ETA like 15 min or 1h 30m." };
     if (this.isResponding(c, this.me().id)) return { ok: false, error: "You are already responding to this call." };
-    c.responders.push({ userId: this.me().id, eta: eta.trim(), at: nowISO() });
-    this.log(this.me().name + " responded to " + c.incident + " (ETA " + eta.trim() + ")"); this.save();
+    c.responders.push({ userId: this.me().id, eta: parsed, at: nowISO() });
+    this.log(this.me().name + " responded to " + c.incident + " (ETA " + parsed + ")"); this.save();
     return { ok: true };
   },
   unassign: function (callId, userId) {
@@ -191,6 +273,8 @@ var Store = {
     var c = this.call(callId); if (!c || c.status !== "open") return { ok: false, error: "Only an open call can need backup." };
     if (c.backupNeeded) return { ok: false, error: "Backup is already requested on this call." };
     c.backupNeeded = true;
+    // Drop any stale backup alert for this call before adding the new one.
+    this.state.alerts = this.state.alerts.filter(function (a) { return !(a.kind === "backup" && a.callId === c.id); });
     this.state.alerts.unshift({ id: uid("a"), callId: c.id, kind: "backup", urgent: c.urgent,
       text: "BACKUP NEEDED on " + c.incident + ": " + c.nature + " at " + c.address, at: nowISO() });
     this.log("Backup requested on " + c.incident + " by " + this.me().name); this.save();
@@ -199,6 +283,9 @@ var Store = {
   clearBackup: function (callId) {
     var c = this.call(callId); if (!c) return { ok: false, error: "Call not found." };
     c.backupNeeded = false;
+    // Clearing backup removes the matching alert — the banner must
+    // never keep saying BACKUP NEEDED after the call says Not needed.
+    this.state.alerts = this.state.alerts.filter(function (a) { return !(a.kind === "backup" && a.callId === callId); });
     this.log("Backup cleared on " + c.incident + " by " + this.me().name); this.save();
     return { ok: true };
   },
@@ -211,6 +298,8 @@ var Store = {
       return { ok: false, error: "Equipment must be returned before closing: " + names };
     }
     c.status = "closed"; c.outcome = outcome; c.closedAt = nowISO(); c.backupNeeded = false;
+    // Closing also clears any backup alert for this call.
+    this.state.alerts = this.state.alerts.filter(function (a) { return !(a.kind === "backup" && a.callId === callId); });
     this.log(c.incident + " closed as " + outcome + " by " + this.me().name); this.save();
     return { ok: true };
   },
@@ -301,6 +390,7 @@ var Store = {
   addMember: function (name, phone, role, inventoryManager) {
     if (!name || !name.trim()) return { ok: false, error: "Member name is required." };
     if (["super-admin", "coordinator", "dispatcher", "member"].indexOf(role) === -1) return { ok: false, error: "Pick a valid role." };
+    if (phone && phone.trim() && phone.replace(/\D/g, "").length < 7) return { ok: false, error: "Enter a valid phone number (at least 7 digits)." };
     var m = { id: uid("u"), name: name.trim(), phone: phone || "", role: role, inventoryManager: !!inventoryManager };
     this.state.users.push(m); this.log("Member added: " + m.name + " (" + role + ")"); this.save();
     return { ok: true, member: m };
@@ -308,6 +398,7 @@ var Store = {
   editMember: function (id, name, phone, role, inventoryManager) {
     var m = this.user(id); if (!m) return { ok: false, error: "Member not found." };
     if (!name || !name.trim()) return { ok: false, error: "Member name is required." };
+    if (phone && phone.trim() && phone.replace(/\D/g, "").length < 7) return { ok: false, error: "Enter a valid phone number (at least 7 digits)." };
     m.name = name.trim(); m.phone = phone || ""; m.role = role; m.inventoryManager = !!inventoryManager;
     this.log("Member edited: " + m.name); this.save(); return { ok: true };
   },
@@ -401,7 +492,7 @@ var Store = {
 };
 
 /* ---------------- UI ---------------- */
-var App = { tab: "home", pendingCall: null, idemKey: null };
+var App = { tab: "home", pendingCall: null, idemKey: null, editingDraftId: null };
 
 function roleLabel(r) { return {"super-admin":"Super admin","coordinator":"Coordinator","dispatcher":"Dispatcher","member":"Member"}[r] || r; }
 function userName(id) { var u = Store.user(id); return u ? esc(u.name) : "—"; }
@@ -466,7 +557,9 @@ function callCard(c) {
     (c.vehicle ? ' · <span class="veh">' + esc(c.vehicle) + "</span>" : "") + "</span></div>" +
     (canSee
       ? '<div class="card-row"><span class="ic">' + ICONS.phone + '</span><span class="val"><strong>' + esc(c.callerName) + '</strong> — <a href="tel:' + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + '">' + esc(c.callerPhone) + "</a></span></div>"
-      : '<div class="card-row"><span class="ic">' + ICONS.phone + '</span><span class="val dim">Caller hidden — visible only while you are responding to this call, or with an approved grant.</span></div>') +
+      : '<div class="card-row"><span class="ic">' + ICONS.phone + '</span><span class="val dim">' + (c.status === "closed"
+          ? "Caller hidden after close — an approved grant is needed to see it."
+          : "Caller hidden — visible only while you are responding to this call, or with an approved grant.") + "</span></div>") +
     (c.notes ? '<div class="card-row"><span class="ic">' + ICONS.clip + '</span><span class="val note">' + esc(c.notes) + "</span></div>" : "") +
     '<div class="pills">' + pills + "</div>" + bar +
     "</article>";
@@ -498,11 +591,18 @@ function render() {
   $("#tabs").innerHTML = tabs.map(function (t) {
     return '<button data-action="tab" data-tab="' + t[0] + '"' + (App.tab === t[0] ? ' aria-current="true"' : "") + ">" + esc(t[1]) + "</button>";
   }).join("");
-  // In-app alert banner (all org members except super admin)
+  // In-app alert banner (all org members except super admin).
+  // The banner is derived from live state: a backup alert only shows
+  // while its call is still open and still needs backup — a stale
+  // backup alert never renders, even if one survives in storage.
   var banner = $("#alert-banner");
   if (me.role === "super-admin") { banner.hidden = true; }
   else {
-    var recent = Store.state.alerts.slice(0, 2);
+    var recent = Store.state.alerts.filter(function (a) {
+      if (a.kind !== "backup") return true;
+      var c = Store.call(a.callId);
+      return c && c.status === "open" && c.backupNeeded;
+    }).slice(0, 2);
     if (recent.length) {
       banner.hidden = false;
       banner.className = "alert-banner" + (recent.some(function (a) { return a.urgent; }) ? " urgent" : "");
@@ -549,24 +649,29 @@ function viewCalls() {
 
 function viewNewCall() {
   var s = Store.state;
-  var opts = s.callNatures.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + "</option>"; }).join("");
-  var h = "<h1>New call</h1>";
+  // Prefill from a pending call (Back to edit, or editing a draft) so
+  // nothing has to be retyped.
+  var d = App.pendingCall || {};
+  var editing = App.editingDraftId ? Store.call(App.editingDraftId) : null;
+  var opts = s.callNatures.map(function (n) { return '<option value="' + esc(n) + '"' + (d.nature === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("");
+  var alertKind = d.alertKind || "normal";
+  var h = "<h1>" + (editing ? "Edit draft " + esc(editing.incident) : "New call") + "</h1>";
   h += '<form id="new-call-form">' +
     '<label for="nc-nature">Call nature</label><select id="nc-nature" name="nature">' + opts + "</select>" +
-    '<label for="nc-address">Address</label><input type="text" id="nc-address" name="address" list="addr-list" placeholder="Start typing an address…" autocomplete="off">' +
+    '<label for="nc-address">Address</label><input type="text" id="nc-address" name="address" list="addr-list" placeholder="Start typing an address…" autocomplete="off" value="' + esc(d.address || "") + '">' +
     '<datalist id="addr-list">' + s.savedAddresses.map(function (a) { return '<option value="' + esc(a) + '">'; }).join("") + "</datalist>" +
     '<div id="nc-suggest"></div>' +
-    '<label for="nc-vehicle">Vehicle (car type)</label><input type="text" id="nc-vehicle" name="vehicle" placeholder="e.g. Honda Accord">' +
-    '<label for="nc-name">Caller name</label><input type="text" id="nc-name" name="callerName">' +
-    '<label for="nc-phone">Callback number</label><input type="tel" id="nc-phone" name="callerPhone" placeholder="555-0100">' +
-    '<label for="nc-notes">Notes</label><textarea id="nc-notes" name="notes"></textarea>' +
-    '<label for="nc-coords">Coordinates (optional)</label><input type="text" id="nc-coords" name="coordinates" placeholder="e.g. 41.2743, -75.8835">' +
-    '<label for="nc-maps">Google Maps link (optional — paste a link)</label><input type="text" id="nc-maps" name="mapsLink" placeholder="https://maps.google.com/…">' +
+    '<label for="nc-vehicle">Vehicle (car type)</label><input type="text" id="nc-vehicle" name="vehicle" placeholder="e.g. Honda Accord" value="' + esc(d.vehicle || "") + '">' +
+    '<label for="nc-name">Caller name</label><input type="text" id="nc-name" name="callerName" value="' + esc(d.callerName || "") + '">' +
+    '<label for="nc-phone">Callback number <span class="req">*</span> <span class="req-hint">(required)</span></label><input type="tel" id="nc-phone" name="callerPhone" placeholder="555-0100" value="' + esc(d.callerPhone || "") + '">' +
+    '<label for="nc-notes">Notes</label><textarea id="nc-notes" name="notes">' + esc(d.notes || "") + "</textarea>" +
+    '<label for="nc-coords">Coordinates (optional)</label><input type="text" id="nc-coords" name="coordinates" placeholder="e.g. 41.2743, -75.8835" value="' + esc(d.coordinates || "") + '">' +
+    '<label for="nc-maps">Google Maps link (optional — paste a link)</label><input type="text" id="nc-maps" name="mapsLink" placeholder="https://maps.google.com/…" value="' + esc(d.mapsLink || "") + '">' +
     '<fieldset><legend>Alert</legend>' +
-    '<label><input type="radio" name="alertKind" value="normal" checked> Normal — alert everyone in the org</label>' +
-    '<label><input type="radio" name="alertKind" value="urgent"> Urgent — different sound/vibration, bypasses the app’s own night mute (in this prototype: shown as urgent)</label>' +
-    '<label><input type="radio" name="alertKind" value="none"> Don’t notify — create silently</label></fieldset>' +
-    '<label><input type="checkbox" id="nc-save-addr"> Save this address for next time</label>' +
+    '<label><input type="radio" name="alertKind" value="normal"' + (alertKind === "normal" ? " checked" : "") + '> Normal — alert everyone in the org</label>' +
+    '<label><input type="radio" name="alertKind" value="urgent"' + (alertKind === "urgent" ? " checked" : "") + '> Urgent — different sound/vibration, bypasses the app’s own night mute (in this prototype: shown as urgent)</label>' +
+    '<label><input type="radio" name="alertKind" value="none"' + (alertKind === "none" ? " checked" : "") + '> Don’t notify — create silently</label></fieldset>' +
+    '<label><input type="checkbox" id="nc-save-addr"' + (d.saveAddress ? " checked" : "") + '> Save this address for next time</label>' +
     '<label><input type="checkbox" id="nc-exclude-addr"> Exclude this address from history suggestions</label>' +
     '<div><button class="btn" type="submit">Review call</button></div>' +
     "</form><div id=\"nc-summary\"></div>";
@@ -607,6 +712,17 @@ function assignPickerHTML(c) {
 /* ----- call detail dialog ----- */
 function openDialog(html) { $("#dlg-body").innerHTML = html; var d = $("#dlg"); if (!d.open) d.showModal(); }
 function closeDialog() { var d = $("#dlg"); if (d.open) d.close(); }
+// Friendly close-outcome labels (stored codes stay the OUTCOMES values).
+// Nothing is pre-selected — closing requires picking one.
+var OUTCOME_LABELS = {
+  Received: ["Received", "Help was given and the caller was taken care of"],
+  OnTheWay: ["On the way", "Help was on the way when the call ended"],
+  NeedsCoordinator: ["Needs coordinator", "Passed to a coordinator to follow up"],
+  Interstate: ["Interstate", "Out-of-area / interstate call"],
+  NotCorrected: ["Not corrected", "Could not be fixed on scene"],
+  Corrected: ["Corrected", "Fixed on scene — caller is good to go"],
+  Cancelled: ["Cancelled", "Caller cancelled before help arrived"]
+};
 
 function callDetailHTML(c) {
   var me = Store.me();
@@ -622,6 +738,8 @@ function callDetailHTML(c) {
     "<dt>Notes</dt><dd>" + esc(c.notes || "—") + "</dd>";
   if (canSee) {
     h += "<dt>Caller</dt><dd>" + esc(c.callerName) + " — <a href=\"tel:" + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + "\">" + esc(c.callerPhone) + "</a> (tap to call back)</dd>";
+  } else if (c.status === "closed") {
+    h += "<dt>Caller</dt><dd class=\"muted\">Hidden after close. Request caller name + phone from a dispatcher (approval needed) — past responders can no longer see it either.</dd>";
   } else {
     h += "<dt>Caller</dt><dd class=\"muted\">Hidden. Visible only while you are responding to this call, or with an approved grant.</dd>";
   }
@@ -633,9 +751,10 @@ function callDetailHTML(c) {
   if (c.status === "open") {
     if ((me.role === "member" || me.role === "coordinator") && !responding) {
       h += '<h3>Respond</h3><form id="respond-form" data-call="' + c.id + '">' +
-        '<label for="eta">ETA (required)</label><input type="text" id="eta" name="eta" placeholder="e.g. 15 min">' +
+        '<label for="eta">ETA (required — e.g. 15 min or 1h 30m)</label><input type="text" id="eta" name="eta" placeholder="e.g. 15 min">' +
         '<button class="btn secondary" type="button" data-action="eta-location">Use my location to prefill ETA</button>' +
         '<div id="eta-note" class="muted"></div>' +
+        '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
         '<div><button class="btn" type="submit">Respond to this call</button></div></form>';
     }
     if (responding) h += "<p>You are responding to this call. Only a dispatcher can unassign you.</p>";
@@ -663,25 +782,28 @@ function callDetailHTML(c) {
           loanable.map(function (e) { return '<option value="' + e.id + '">' + esc(e.name) + "</option>"; }).join("") + "</select>" +
           '<label for="loan-borrower">Borrower name</label><input type="text" id="loan-borrower" name="borrower">' +
           '<label><input type="checkbox" name="loanAgreed"> Loan agreed (checkbox — no signing in this version)</label>' +
+          '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
           '<div><button class="btn secondary" type="submit">Create loan</button></div></form>';
       }
     }
     if (Store.can("close")) {
       h += "<h3>Close this call</h3><form id=\"close-form\" data-call=\"" + c.id + "\">" +
-        OUTCOMES.map(function (o) { return '<label><input type="radio" name="outcome" value="' + o + '"' + (o === "Corrected" ? " checked" : "") + "> " + o + "</label>"; }).join("") +
+        OUTCOMES.map(function (o) { var L = OUTCOME_LABELS[o]; return '<label><input type="radio" name="outcome" value="' + o + '"> <strong>' + L[0] + "</strong> — <span class=\"muted\">" + L[1] + "</span></label>"; }).join("") +
+        '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
         '<div><button class="btn danger" type="submit">Close call</button></div></form>';
     }
     h += '<button class="btn secondary" data-action="interstate">Interstate (placeholder — sends nothing)</button>';
   }
   if (c.status === "draft" && Store.can("create-call")) {
-    h += '<button class="btn" data-action="put-out" data-id="' + c.id + '">Put out this draft</button>' +
+    h += '<button class="btn" data-action="edit-draft" data-id="' + c.id + '">Edit draft</button>' +
+      '<button class="btn" data-action="put-out" data-id="' + c.id + '">Put out this draft</button>' +
       '<button class="btn danger" data-action="delete-draft" data-id="' + c.id + '">Delete draft</button>';
   }
   if (c.status === "closed") {
     if (Store.can("reopen")) h += '<button class="btn" data-action="reopen" data-id="' + c.id + '">Reopen call (responses, assignments and equipment stay as they were)</button>';
     if (me.role === "member") h += '<button class="btn secondary" data-action="request-hidden" data-id="' + c.id + '">Request caller name + phone (dispatcher approval needed)</button>';
   }
-  h += '<div><button class="btn secondary" data-action="close-dialog">Close</button></div>';
+  h += '<div><button class="btn secondary" data-action="close-dialog">Cancel</button></div>';
   return h;
 }
 
@@ -702,21 +824,36 @@ function viewEquipment() {
       "</article>";
   }).join("") || "<p>No equipment yet — add some.</p>";
   h += "<h2>Loans</h2>";
+  // Only the NEXT action for the loan's current state, with a hint so
+  // the state is clear — never the full lifecycle button row.
+  var LOAN_NEXT = {
+    "created": ["released", "Mark released", "Next: release the item to the borrower."],
+    "released": ["picked-up", "Mark picked up", "Next: borrower picks the item up."],
+    "picked-up": ["returned", "Mark returned", "Next: item is returned."],
+    "returned": ["closed", "Close loan", "Next: close the loan."]
+  };
   h += Store.state.loans.length ? Store.state.loans.map(function (l) {
     var it = Store.item(l.itemId);
-    var steps = ["released", "picked-up", "returned", "closed"];
+    var next = LOAN_NEXT[l.status];
     return '<article class="card"><h3>Loan — ' + esc(it ? it.name : l.itemId) + ' to ' + esc(l.borrower) + ' <span class="badge">' + esc(l.status) + "</span></h3>" +
       '<p class="muted">Loan agreed: ' + (l.loanAgreed ? "yes" : "no") + " · Created " + fmtDT(l.createdAt) + "</p>" +
-      steps.map(function (s) { return '<button class="btn small secondary" data-action="loan-step" data-id="' + l.id + '" data-step="' + s + '">Mark ' + s + "</button>"; }).join("") +
+      '<p class="muted">' + (next ? next[2] : "Closed — nothing left to do.") + "</p>" +
+      (next ? '<button class="btn small secondary" data-action="loan-step" data-id="' + l.id + '" data-step="' + next[0] + '">' + next[1] + "</button>" : "") +
       "</article>";
   }).join("") : "<p>No loans yet.</p>";
   return h;
 }
 
+function telLink(phone) {
+  var digits = String(phone || "").replace(/[^0-9+]/g, "");
+  if (!digits) return "—";
+  return '<a href="tel:' + esc(digits) + '">' + esc(phone) + "</a>";
+}
+
 function viewContacts() {
   return "<h1>Contacts</h1><p class=\"muted\">Members see other members’ names and phone numbers.</p>" +
-    '<table><tr><th>Name</th><th>Role</th><th>Phone</th></tr>' +
-    Store.state.users.map(function (u) { return "<tr><td>" + esc(u.name) + "</td><td>" + roleLabel(u.role) + (u.inventoryManager ? " + inventory" : "") + "</td><td>" + esc(u.phone) + "</td></tr>"; }).join("") + "</table>";
+    '<div class="table-scroll"><table><tr><th>Name</th><th>Role</th><th>Phone</th></tr>' +
+    Store.state.users.map(function (u) { return "<tr><td>" + esc(u.name) + "</td><td>" + roleLabel(u.role) + (u.inventoryManager ? " + inventory" : "") + "</td><td>" + telLink(u.phone) + "</td></tr>"; }).join("") + "</table></div>";
 }
 
 function viewDashboard() {
@@ -746,8 +883,8 @@ function viewReports() {
   var closed = Store.state.calls.filter(function (c) { return c.status === "closed"; });
   var h = "<h1>Calls / incidents report</h1><p class=\"muted\">Coordinator and above only. Basic report in this version.</p>" +
     '<button class="btn" data-action="export-csv">Download CSV</button>' +
-    '<table><tr><th>Incident</th><th>Date</th><th>Nature</th><th>Address</th><th>Outcome</th><th>Responders</th></tr>' +
-    closed.map(function (c) { return "<tr><td>" + esc(c.incident) + "</td><td>" + fmtDT(c.closedAt) + "</td><td>" + esc(c.nature) + "</td><td>" + esc(c.address) + "</td><td>" + esc(c.outcome || "") + "</td><td>" + c.responders.map(function (r) { return userName(r.userId); }).join(", ") + "</td></tr>"; }).join("") + "</table>";
+    '<div class="table-scroll"><table><tr><th>Incident</th><th>Date</th><th>Nature</th><th>Address</th><th>Outcome</th><th>Responders</th></tr>' +
+    closed.map(function (c) { return "<tr><td>" + esc(c.incident) + "</td><td>" + fmtDT(c.closedAt) + "</td><td>" + esc(c.nature) + "</td><td>" + esc(c.address) + "</td><td>" + esc(c.outcome || "") + "</td><td>" + c.responders.map(function (r) { return userName(r.userId); }).join(", ") + "</td></tr>"; }).join("") + "</table></div>";
   return h;
 }
 
@@ -763,8 +900,8 @@ function viewRequests() {
       '<button class="btn" data-action="approve-request" data-id="' + r.id + '">Approve</button>' +
       '<button class="btn danger" data-action="deny-request" data-id="' + r.id + '">Deny</button></article>';
   }).join("") : "<p>No pending requests.</p>");
-  h += "<h2>Decided (log)</h2>" + (done.length ? '<table><tr><th>Who</th><th>Call</th><th>Fields</th><th>Status</th><th>Duration</th><th>Approved by</th><th>Expires</th></tr>' +
-    done.map(function (r) { var c = Store.call(r.callId); return "<tr><td>" + userName(r.requesterId) + "</td><td>" + esc(c ? c.incident : r.callId) + "</td><td>" + esc(r.fields.join(", ")) + "</td><td>" + esc(r.status) + "</td><td>" + (r.durationMinutes ? r.durationMinutes + " min" : (r.status === "approved" ? "forever" : "—")) + "</td><td>" + (r.approvedBy ? userName(r.approvedBy) : "—") + "</td><td>" + (r.expiresAt ? fmtDT(r.expiresAt) : "—") + "</td></tr>"; }).join("") + "</table>" : "<p>Nothing yet.</p>");
+  h += "<h2>Decided (log)</h2>" + (done.length ? '<div class="table-scroll"><table><tr><th>Who</th><th>Call</th><th>Fields</th><th>Status</th><th>Duration</th><th>Approved by</th><th>Expires</th></tr>' +
+    done.map(function (r) { var c = Store.call(r.callId); return "<tr><td>" + userName(r.requesterId) + "</td><td>" + esc(c ? c.incident : r.callId) + "</td><td>" + esc(r.fields.join(", ")) + "</td><td>" + esc(r.status) + "</td><td>" + (r.durationMinutes ? r.durationMinutes + " min" : (r.status === "approved" ? "forever" : "—")) + "</td><td>" + (r.approvedBy ? userName(r.approvedBy) : "—") + "</td><td>" + (r.expiresAt ? fmtDT(r.expiresAt) : "—") + "</td></tr>"; }).join("") + "</table></div>" : "<p>Nothing yet.</p>");
   h += "<h2>Activity log</h2><ul>" + Store.state.activityLog.slice(0, 30).map(function (a) { return "<li>" + fmtDT(a.at) + " — " + esc(a.text) + "</li>"; }).join("") + "</ul>";
   return h;
 }
@@ -776,7 +913,7 @@ function viewHistory() {
   h += mine.length ? mine.map(function (c) {
     return '<article class="card"><h3>' + esc(c.incident) + " — " + esc(c.nature) + "</h3>" +
       "<dl class=\"kv\"><dt>Date</dt><dd>" + fmtDT(c.closedAt) + "</dd><dt>Outcome</dt><dd>" + esc(c.outcome || "") + "</dd>" +
-      "<dt>Caller</dt><dd>" + (Store.canSeeCaller(c, me.id) ? esc(c.callerName) + " — " + esc(c.callerPhone) : "Hidden after close") + "</dd></dl>" +
+      "<dt>Caller</dt><dd>" + (Store.canSeeCaller(c, me.id) ? esc(c.callerName) + " — " + telLink(c.callerPhone) : "Hidden after close") + "</dd></dl>" +
       '<button class="btn small" data-action="open-call" data-id="' + c.id + '">Open call</button></article>';
   }).join("") : "<p>No closed calls you responded to yet.</p>";
   return h;
@@ -788,8 +925,8 @@ function viewManage() {
   var h = "<h1>Manage</h1><p class=\"muted\">Only the roles allowed to manage each thing see its section.</p>";
   if (Store.can("manage-members")) {
     h += "<h2>Members</h2><button class=\"btn\" data-action=\"member-add\">Add member</button>" +
-      '<table><tr><th>Name</th><th>Role</th><th>Phone</th><th></th></tr>' +
-      s.users.map(function (u) { return "<tr><td>" + esc(u.name) + "</td><td>" + roleLabel(u.role) + (u.inventoryManager ? " + inventory" : "") + "</td><td>" + esc(u.phone) + "</td><td><button class=\"btn small secondary\" data-action=\"member-edit\" data-id=\"" + u.id + "\">Edit</button></td></tr>"; }).join("") + "</table>";
+      '<div class="table-scroll"><table><tr><th>Name</th><th>Role</th><th>Phone</th><th></th></tr>' +
+      s.users.map(function (u) { return "<tr><td>" + esc(u.name) + "</td><td>" + roleLabel(u.role) + (u.inventoryManager ? " + inventory" : "") + "</td><td>" + telLink(u.phone) + "</td><td><button class=\"btn small secondary\" data-action=\"member-edit\" data-id=\"" + u.id + "\">Edit</button></td></tr>"; }).join("") + "</table></div>";
   }
   if (Store.can("manage-natures")) {
     h += "<h2>Call natures</h2><form id=\"nature-add-form\"><label for=\"nature-new\">Add a call nature</label><input type=\"text\" id=\"nature-new\" name=\"name\"><div><button class=\"btn\" type=\"submit\">Add nature</button></div></form>" +
@@ -853,9 +990,10 @@ function memberFormHTML(m) {
   m = m || { id: "", name: "", phone: "", role: "member", inventoryManager: false };
   return "<h2>" + (m.id ? "Edit member" : "Add member") + "</h2><form id=\"member-form\" data-id=\"" + m.id + "\">" +
     '<label>Name <input type="text" name="name" value="' + esc(m.name) + '" required></label>' +
-    '<label>Phone <input type="tel" name="phone" value="' + esc(m.phone) + '"></label>' +
+    '<label>Phone <input type="tel" name="phone" value="' + esc(m.phone) + '" placeholder="At least 7 digits, if entered"></label>' +
     '<label>Role <select name="role">' + ["super-admin", "coordinator", "dispatcher", "member"].map(function (r) { return '<option value="' + r + '"' + (m.role === r ? " selected" : "") + ">" + roleLabel(r) + "</option>"; }).join("") + "</select></label>" +
     '<label><input type="checkbox" name="inventoryManager"' + (m.inventoryManager ? " checked" : "") + "> Inventory manager (add-on — keeps member abilities, adds inventory)</label>" +
+    '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
     '<div><button class="btn" type="submit">Save member</button> <button class="btn secondary" type="button" data-action="close-dialog">Cancel</button></div></form>';
 }
 function equipFormHTML(it) {
@@ -863,6 +1001,7 @@ function equipFormHTML(it) {
   return "<h2>" + (it.id ? "Edit equipment" : "Add equipment") + "</h2><form id=\"equip-form\" data-id=\"" + it.id + "\">" +
     '<label>Item name <input type="text" name="name" value="' + esc(it.name) + '" required></label>' +
     '<label>Kind <select name="kind"><option value="call-only"' + (it.kind === "call-only" ? " selected" : "") + '>Call-only</option><option value="loan-only"' + (it.kind === "loan-only" ? " selected" : "") + '>Loan-only</option></select></label>' +
+    '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
     '<div><button class="btn" type="submit">Save item</button> <button class="btn secondary" type="button" data-action="close-dialog">Cancel</button></div></form>';
 }
 
@@ -884,31 +1023,58 @@ document.addEventListener("click", function (e) {
   // behaviour instead of opening the dialog.
   if (a === "open-call" && e.target.closest("a")) return;
   switch (a) {
-    case "tab": App.tab = el.dataset.tab; render(); break;
+    case "tab":
+      App.tab = el.dataset.tab;
+      // A manual trip to New call starts a fresh form — it must not
+      // silently keep editing a draft (edit-draft sets App.tab directly).
+      if (App.tab === "new") { App.editingDraftId = null; App.pendingCall = null; }
+      render(); break;
     case "close-dialog": closeDialog(); break;
     case "open-call": c = Store.call(id); if (c) openDialog(callDetailHTML(c)); break;
     case "add-member": c = Store.call(id); if (c && Store.can("assign")) openDialog(assignPickerHTML(c)); break;
-    case "assign-member": r = Store.assign(id, el.dataset.user); toast(r.ok ? "Member assigned to the call." : r.error); render(); if (r.ok) { c = Store.call(id); if (c) openDialog(assignPickerHTML(c)); } break;
+    case "assign-member": r = Store.assign(id, el.dataset.user); if (r.ok) toast("Member assigned to the call."); else showError(r.error); render(); if (r.ok) { c = Store.call(id); if (c) openDialog(assignPickerHTML(c)); } break;
     case "interstate": toast("Interstate button is a placeholder in this prototype — it sends nothing."); break;
-    case "backup-request": r = Store.requestBackup(id); toast(r.ok ? "Backup requested — everyone alerted." : r.error); render(); if (r.ok && $("#dlg").open) { c = Store.call(id); if (c) openDialog(callDetailHTML(c)); } break;
-    case "backup-clear": r = Store.clearBackup(id); toast(r.ok ? "Backup cleared." : r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
-    case "unassign": r = Store.unassign(id, el.dataset.user); toast(r.ok ? "Member unassigned." : r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
-    case "put-out": r = Store.putOutDraft(id); toast(r.ok ? "Draft put out — alert sent." : r.error); closeDialog(); render(); break;
-    case "delete-draft":
-      if (confirm("Delete this draft call?")) { r = Store.deleteDraft(id); toast(r.ok ? "Draft deleted." : r.error); closeDialog(); render(); }
+    case "backup-request": r = Store.requestBackup(id); if (r.ok) toast("Backup requested — everyone alerted."); else showError(r.error); render(); if (r.ok && $("#dlg").open) { c = Store.call(id); if (c) openDialog(callDetailHTML(c)); } break;
+    case "backup-clear": r = Store.clearBackup(id); if (r.ok) toast("Backup cleared."); else showError(r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
+    case "unassign": {
+      // Two-tap in-app confirm (no native confirm): first tap arms the
+      // button, second tap removes the responder.
+      if (el.dataset.confirm !== "1") {
+        el.dataset.confirm = "1";
+        el.textContent = "Tap again to confirm unassign";
+        break;
+      }
+      r = Store.unassign(id, el.dataset.user);
+      if (r.ok) toast("Member unassigned."); else showError(r.error);
+      render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
+    }
+    case "edit-draft": {
+      c = Store.call(id);
+      if (c && c.status === "draft" && Store.can("create-call")) {
+        App.pendingCall = { nature: c.nature, address: c.address, vehicle: c.vehicle, callerName: c.callerName,
+          callerPhone: c.callerPhone, notes: c.notes, coordinates: c.coordinates, mapsLink: c.mapsLink,
+          alertKind: c.urgent ? "urgent" : (c.notify ? "normal" : "none"), saveAddress: false };
+        App.editingDraftId = c.id; App.idemKey = null;
+        App.tab = "new"; closeDialog(); render();
+      }
       break;
-    case "reopen": r = Store.reopenCall(id); toast(r.ok ? "Call reopened — responses, assignments and equipment stay as they were." : r.error); closeDialog(); render(); break;
-    case "correct-call": r = Store.closeCorrect(id); toast(r.ok ? "Call closed as Corrected." : r.error); render(); break;
-    case "request-callback": r = Store.requestHidden(id, ["phone"]); toast(r.ok ? "Request sent — a dispatcher must approve it." : r.error); break;
-    case "request-hidden": r = Store.requestHidden(id, ["name", "phone"]); toast(r.ok ? "Request sent — a dispatcher must approve it." : r.error); break;
+    }
+    case "put-out": r = Store.putOutDraft(id); if (r.ok) { toast("Draft put out — alert sent."); closeDialog(); } else showError(r.error); render(); break;
+    case "delete-draft":
+      if (confirm("Delete this draft call?")) { r = Store.deleteDraft(id); if (r.ok) toast("Draft deleted."); else toastErr(r.error); closeDialog(); render(); }
+      break;
+    case "reopen": r = Store.reopenCall(id); if (r.ok) { toast("Call reopened — responses, assignments and equipment stay as they were."); closeDialog(); } else showError(r.error); render(); break;
+    case "correct-call": r = Store.closeCorrect(id); if (r.ok) toast("Call closed as Corrected."); else showError(r.error); render(); break;
+    case "request-callback": r = Store.requestHidden(id, ["phone"]); if (r.ok) toast("Request sent — a dispatcher must approve it."); else showError(r.error); break;
+    case "request-hidden": r = Store.requestHidden(id, ["name", "phone"]); if (r.ok) toast("Request sent — a dispatcher must approve it."); else showError(r.error); break;
     case "approve-request": {
       var dur = $("#dur-" + id); var mins = dur && dur.value ? parseInt(dur.value, 10) : null;
-      r = Store.approveHidden(id, mins); toast(r.ok ? "Request approved." : r.error); render(); break;
+      r = Store.approveHidden(id, mins); if (r.ok) toast("Request approved."); else toastErr(r.error); render(); break;
     }
-    case "deny-request": r = Store.denyHidden(id); toast(r.ok ? "Request denied." : r.error); render(); break;
-    case "checkout": r = Store.checkoutEquipment(el.dataset.item, id); toast(r.ok ? "Equipment checked out on this call." : r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
-    case "return-equipment": r = Store.returnEquipment(el.dataset.item); toast(r.ok ? "Equipment returned to stock." : r.error); render(); break;
-    case "loan-step": r = Store.advanceLoan(id, el.dataset.step); toast(r.ok ? "Loan marked " + el.dataset.step + "." : r.error); render(); break;
+    case "deny-request": r = Store.denyHidden(id); if (r.ok) toast("Request denied."); else toastErr(r.error); render(); break;
+    case "checkout": r = Store.checkoutEquipment(el.dataset.item, id); if (r.ok) toast("Equipment checked out on this call."); else showError(r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
+    case "return-equipment": r = Store.returnEquipment(el.dataset.item); if (r.ok) toast("Equipment returned to stock."); else toastErr(r.error); render(); break;
+    case "loan-step": r = Store.advanceLoan(id, el.dataset.step); if (r.ok) toast("Loan marked " + el.dataset.step + "."); else toastErr(r.error); render(); break;
     case "eta-location": {
       var note = $("#eta-note"), etaInput = $("#eta");
       if (!navigator.geolocation) { note.textContent = "Location is not available in this browser — type your ETA manually."; break; }
@@ -920,50 +1086,59 @@ document.addEventListener("click", function (e) {
     }
     case "confirm-call": {
       if (el.disabled) break; el.disabled = true;
-      var data = App.pendingCall; if (!data) { toast("Nothing to confirm — fill in the call first."); break; }
-      r = Store.createCall({
+      var data = App.pendingCall; if (!data) { toastErr("Nothing to confirm — fill in the call first."); break; }
+      var payload = {
         nature: data.nature, address: data.address, vehicle: data.vehicle, callerName: data.callerName,
         callerPhone: data.callerPhone, notes: data.notes, coordinates: data.coordinates, mapsLink: data.mapsLink,
-        urgent: data.alertKind === "urgent", notify: data.alertKind !== "none", status: el.dataset.status,
-        saveAddress: data.saveAddress
-      }, App.idemKey);
-      if (r.ok && r.duplicate) toast("That call was already saved — duplicate ignored.");
-      else if (r.ok) toast(r.call.status === "draft" ? "Draft saved — no notifications sent." : "Call put out — everyone alerted.");
-      else toast(r.error);
-      App.pendingCall = null; App.idemKey = null; App.tab = "calls"; closeDialog(); render();
+        urgent: data.alertKind === "urgent", notify: data.alertKind !== "none", saveAddress: data.saveAddress
+      };
+      if (App.editingDraftId) {
+        // Editing a draft: save back to the same draft, never a new call.
+        r = Store.updateDraft(App.editingDraftId, payload, el.dataset.status);
+        if (r.ok) toast(r.call.status === "draft" ? "Draft saved." : "Draft put out — everyone alerted.");
+        else toastErr(r.error);
+      } else {
+        payload.status = el.dataset.status;
+        r = Store.createCall(payload, App.idemKey);
+        if (r.ok && r.duplicate) toast("That call was already saved — duplicate ignored.");
+        else if (r.ok) toast(r.call.status === "draft" ? "Draft saved — no notifications sent." : "Call put out — everyone alerted.");
+        else toastErr(r.error);
+      }
+      if (r.ok) { App.pendingCall = null; App.idemKey = null; App.editingDraftId = null; App.tab = "calls"; closeDialog(); render(); }
+      else el.disabled = false; // let the user fix it and confirm again
       break;
     }
-    case "cancel-summary": App.pendingCall = null; App.idemKey = null; render(); break;
+    case "cancel-summary": App.idemKey = null; render(); break; // pendingCall is kept — Back to edit prefills the form
     case "member-add": if (Store.can("manage-members")) openDialog(memberFormHTML(null)); break;
     case "member-edit": { var m = Store.user(id); if (m) openDialog(memberFormHTML(m)); break; }
     case "equip-add": if (Store.can("manage-inventory")) openDialog(equipFormHTML(null)); break;
     case "equip-edit": { var it = Store.item(el.dataset.item); if (it) openDialog(equipFormHTML(it)); break; }
-    case "nature-up": r = Store.moveNature(el.dataset.name, -1); if (!r.ok) toast(r.error); render(); break;
-    case "nature-down": r = Store.moveNature(el.dataset.name, 1); if (!r.ok) toast(r.error); render(); break;
+    case "nature-up": r = Store.moveNature(el.dataset.name, -1); if (r.ok) render(); else toastErr(r.error); break;
+    case "nature-down": r = Store.moveNature(el.dataset.name, 1); if (r.ok) render(); else toastErr(r.error); break;
     case "nature-edit": {
       var nn = prompt("Rename call nature:", el.dataset.name);
-      if (nn !== null) { r = Store.editNature(el.dataset.name, nn); toast(r.ok ? "Nature renamed." : r.error); render(); }
+      if (nn !== null) { r = Store.editNature(el.dataset.name, nn); if (r.ok) toast("Nature renamed."); else toastErr(r.error); render(); }
       break;
     }
     case "nature-delete":
-      if (confirm("Delete call nature “" + el.dataset.name + "”?")) { r = Store.deleteNature(el.dataset.name); toast(r.ok ? "Nature deleted." : r.error); render(); }
+      if (confirm("Delete call nature “" + el.dataset.name + "”?")) { r = Store.deleteNature(el.dataset.name); if (r.ok) toast("Nature deleted."); else toastErr(r.error); render(); }
       break;
     case "address-edit": {
       var na = prompt("Edit saved address:", el.dataset.addr);
-      if (na !== null) { r = Store.editAddress(el.dataset.addr, na); toast(r.ok ? "Address updated." : r.error); render(); }
+      if (na !== null) { r = Store.editAddress(el.dataset.addr, na); if (r.ok) toast("Address updated."); else toastErr(r.error); render(); }
       break;
     }
     case "address-delete":
-      if (confirm("Delete saved address “" + el.dataset.addr + "”?")) { r = Store.deleteAddress(el.dataset.addr); toast(r.ok ? "Address deleted." : r.error); render(); }
+      if (confirm("Delete saved address “" + el.dataset.addr + "”?")) { r = Store.deleteAddress(el.dataset.addr); if (r.ok) toast("Address deleted."); else toastErr(r.error); render(); }
       break;
     case "exclude-address": Store.excludeAddress(el.dataset.addr); toast("Address excluded from history suggestions (records kept)."); render(); break;
     case "unexclude-address": Store.unexcludeAddress(el.dataset.addr); toast("Exclusion removed."); render(); break;
     case "fleet-edit": {
       var nv = prompt("Rename vehicle:", (Store.state.fleet.find(function (v) { return v.id === id; }) || {}).name || "");
-      if (nv !== null) { r = Store.renameVehicle(id, nv); toast(r.ok ? "Vehicle renamed." : r.error); render(); }
+      if (nv !== null) { r = Store.renameVehicle(id, nv); if (r.ok) toast("Vehicle renamed."); else toastErr(r.error); render(); }
       break;
     }
-    case "fleet-toggle": r = Store.toggleVehicle(id); toast(r.ok ? "Vehicle updated." : r.error); render(); break;
+    case "fleet-toggle": r = Store.toggleVehicle(id); if (r.ok) toast("Vehicle updated."); else toastErr(r.error); render(); break;
     case "data-export": download("dispatch-mvp-data.json", Store.exportJSON()); toast("Data exported as JSON."); break;
     case "data-reset":
       if (confirm("Reset everything to the fake seed data? Your own entered data will be lost.")) { Store.resetToSeed(); App.tab = "home"; toast("Reset to fake seed data."); render(); }
@@ -1005,9 +1180,9 @@ document.addEventListener("submit", function (e) {
     };
     var exEl = $("#nc-exclude-addr");
     if (exEl && exEl.checked && data.address) Store.excludeAddress(data.address);
-    if (!data.nature || !data.address || !data.callerName) { toast("Call nature, address and caller name are required."); return; }
+    if (!data.nature || !data.address || !data.callerName) { toastErr("Call nature, address and caller name are required."); return; }
     var digits = data.callerPhone.replace(/\D/g, "");
-    if (digits.length < 7) { toast("Enter a valid callback number (at least 7 digits)."); return; }
+    if (digits.length < 7) { toastErr("Enter a valid callback number (at least 7 digits)."); return; }
     App.pendingCall = data; App.idemKey = uid("key");
     $("#nc-summary").innerHTML = newCallSummary(data);
     $("#nc-summary").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1015,48 +1190,48 @@ document.addEventListener("submit", function (e) {
   }
   if (f.id === "respond-form") {
     r = Store.respond(f.dataset.call, fd.get("eta"));
-    toast(r.ok ? "You are responding — you can now see the caller’s number and call them back." : r.error);
-    if (r.ok) { closeDialog(); render(); }
+    if (r.ok) { toast("You are responding — you can now see the caller’s number and call them back."); closeDialog(); render(); }
+    else dlgError(r.error, f);
     return;
   }
   if (f.id === "close-form") {
     r = Store.closeCall(f.dataset.call, fd.get("outcome"));
-    toast(r.ok ? "Call closed." : r.error);
-    if (r.ok) { closeDialog(); render(); }
+    if (r.ok) { toast("Call closed."); closeDialog(); render(); }
+    else dlgError(r.error, f);
     return;
   }
   if (f.id === "loan-form") {
     r = Store.createLoan(fd.get("itemId"), f.dataset.call, fd.get("borrower"), !!f.querySelector('[name="loanAgreed"]').checked);
-    toast(r.ok ? "Loan created." : r.error);
-    if (r.ok) { closeDialog(); render(); }
+    if (r.ok) { toast("Loan created."); closeDialog(); render(); }
+    else dlgError(r.error, f);
     return;
   }
   if (f.id === "member-form") {
     var mid = f.dataset.id;
     r = mid ? Store.editMember(mid, fd.get("name"), fd.get("phone"), fd.get("role"), !!f.querySelector('[name="inventoryManager"]').checked)
             : Store.addMember(fd.get("name"), fd.get("phone"), fd.get("role"), !!f.querySelector('[name="inventoryManager"]').checked);
-    toast(r.ok ? "Member saved." : r.error);
-    if (r.ok) { closeDialog(); render(); }
+    if (r.ok) { toast("Member saved."); closeDialog(); render(); }
+    else dlgError(r.error, f);
     return;
   }
   if (f.id === "equip-form") {
     var eid = f.dataset.id;
     r = eid ? Store.editEquipment(eid, fd.get("name"), fd.get("kind")) : Store.addEquipment(fd.get("name"), fd.get("kind"));
-    toast(r.ok ? "Equipment saved." : r.error);
-    if (r.ok) { closeDialog(); render(); }
+    if (r.ok) { toast("Equipment saved."); closeDialog(); render(); }
+    else dlgError(r.error, f);
     return;
   }
-  if (f.id === "nature-add-form") { r = Store.addNature(fd.get("name")); toast(r.ok ? "Nature added." : r.error); if (r.ok) render(); return; }
-  if (f.id === "address-add-form") { r = Store.addAddress(fd.get("address")); toast(r.ok ? "Address saved." : r.error); if (r.ok) render(); return; }
-  if (f.id === "fleet-add-form") { r = Store.addVehicle(fd.get("name")); toast(r.ok ? "Vehicle added." : r.error); if (r.ok) render(); return; }
+  if (f.id === "nature-add-form") { r = Store.addNature(fd.get("name")); if (r.ok) { toast("Nature added."); render(); } else toastErr(r.error); return; }
+  if (f.id === "address-add-form") { r = Store.addAddress(fd.get("address")); if (r.ok) { toast("Address saved."); render(); } else toastErr(r.error); return; }
+  if (f.id === "fleet-add-form") { r = Store.addVehicle(fd.get("name")); if (r.ok) { toast("Vehicle added."); render(); } else toastErr(r.error); return; }
   if (f.id === "import-form") {
     var file = f.querySelector("#import-file").files[0];
-    if (!file) { toast("Pick a JSON file to import first."); return; }
+    if (!file) { toastErr("Pick a JSON file to import first."); return; }
     var reader = new FileReader();
     reader.onload = function () {
       var res = Store.importJSON(reader.result);
-      toast(res.ok ? "Data imported." : res.error);
-      if (res.ok) render();
+      if (res.ok) { toast("Data imported."); render(); }
+      else toastErr(res.error);
     };
     reader.readAsText(file);
     return;
@@ -1083,6 +1258,8 @@ document.addEventListener("click", function (e) {
 });
 
 /* ----- init ----- */
+// Tapping a toast dismisses it (error toasts otherwise linger 8s).
+$("#toast").addEventListener("click", function () { this.hidden = true; this.classList.remove("error"); if (toastTimer) clearTimeout(toastTimer); });
 $("#role-switch").addEventListener("change", function (e) {
   Store.state.currentUserId = e.target.value; Store.save(); render();
 });
