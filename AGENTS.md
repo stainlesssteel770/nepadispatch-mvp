@@ -1,0 +1,65 @@
+# AGENTS.md — Dispatch MVP prototype
+
+Project conventions and boundaries for any future coding agent. Read
+`PROJECT_HANDOFF.md` first for architecture, decisions, and state.
+
+## What this is
+
+Plain HTML/CSS/JS, no build step, no framework, no network calls.
+Static GitHub Pages prototype for single-phone testing with fake data.
+State in `localStorage` (`dispatch-mvp-` prefix) behind the single
+`Store` object in `app.js`.
+
+## Hard boundaries — never break these
+
+- **Fake/test data only.** Never put real caller or member data, real
+  phone numbers, secrets, keys, or tokens in code, commits, issues,
+  logs, or seed data. The warning in the app and README stays.
+- **No live dispatch, no real notifications, no public deployment,
+  no paid services** without the owner's separate approval.
+- **Do not claim server enforcement.** All role checks and privacy
+  hiding in this prototype run in the browser only. If you add a
+  rule, say in the code and in `PROJECT_HANDOFF.md` whether it is
+  UI-only or server-enforced.
+- **Do not push to GitHub, create a repo, or add Firebase** until the
+  owner approves that stage. GitHub was not connected when this
+  prototype was built.
+
+## Conventions
+
+- Small, clearly described changes; keep `main` runnable.
+- All persistence goes through `Store` (`app.js`) — never touch
+  `localStorage` directly from UI code. New features add a Store
+  method first, then UI that calls it.
+- Every create/edit flow shows one clean summary before confirming;
+  no nested modals (one `<dialog>` at a time).
+- Duplicate submits: use an idempotency key through
+  `Store.createCall(data, key)`; never create a second record for a
+  retry.
+- Caller name/phone is shown only when `Store.canSeeCaller()` says
+  so. Never render it from a different code path.
+- Roles: super-admin (admin-only, no call response, no caller
+  details, no alerts), coordinator (dispatcher duties + org admin),
+  dispatcher, member, inventory-manager (add-on to a member). Hide
+  pages/options a role cannot use; do not show them disabled.
+- Keep the decision log in `PROJECT_HANDOFF.md` current: record each
+  new decision with its reason, and never silently re-decide a settled
+  one. The settled decisions are in the review at
+  `~/workspace/your_files/dispatch-mvp-pre-coding-review.md` §11.
+
+## Commands
+
+```sh
+python3 -m http.server 8123   # serve locally, open http://127.0.0.1:8123/
+node --check app.js seed.js   # syntax check
+node tests/smoke.mjs          # browser smoke tests (needs puppeteer-core + CHROME_PATH)
+```
+
+## Files
+
+- `index.html` — shell: header, role switcher, alert banner, test-data warning, tabs, one dialog.
+- `styles.css` — mobile-first styles.
+- `seed.js` — fake seed data only (`window.DISPATCH_SEED`).
+- `app.js` — Store (persistence + rules) + UI rendering + event handling.
+  `window.DispatchStore` / `window.DispatchApp` are exposed for tests.
+- `tests/smoke.mjs` — 23 headless-browser checks.

@@ -1,0 +1,47 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1c2333; background: #f4f6f9; line-height: 1.45; }
+header { background: #16233f; color: #fff; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5; }
+.brand strong { font-size: 1.1rem; }
+.tag { background: #e8a13a; color: #1c2333; font-size: .68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+.who { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
+.who select { padding: 6px; border-radius: 6px; border: 1px solid #ccc; max-width: 220px; }
+.alert-banner { padding: 10px 14px; font-weight: 600; background: #fff3cd; border-bottom: 2px solid #e8a13a; }
+.alert-banner.urgent { background: #fde2e2; border-color: #c0392b; color: #7a1f16; }
+.warn { padding: 8px 14px; background: #fff8e6; border-bottom: 1px solid #e8a13a; font-size: .88rem; font-weight: 600; }
+nav#tabs { display: flex; gap: 4px; padding: 8px 10px 0; flex-wrap: wrap; }
+nav#tabs button { border: 1px solid #cfd6e2; background: #fff; padding: 8px 12px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: .92rem; }
+nav#tabs button[aria-current="true"] { background: #16233f; color: #fff; border-color: #16233f; }
+main { max-width: 720px; margin: 0 auto; padding: 12px 12px 40px; }
+h1 { font-size: 1.25rem; margin: .4em 0; }
+h2 { font-size: 1.05rem; margin: 1.2em 0 .4em; }
+h3 { font-size: .98rem; margin: 1em 0 .3em; }
+.card { background: #fff; border: 1px solid #dbe1ea; border-radius: 10px; padding: 12px; margin: 10px 0; }
+.card.urgent { border-left: 5px solid #c0392b; }
+.card.backup { border-left: 5px solid #e8a13a; }
+.badge { display: inline-block; font-size: .72rem; font-weight: 700; padding: 2px 7px; border-radius: 20px; background: #e6ebf2; margin-right: 4px; }
+.badge.urgent { background: #c0392b; color: #fff; }
+.badge.backup { background: #e8a13a; color: #1c2333; }
+.badge.draft { background: #8a94a6; color: #fff; }
+.badge.closed { background: #5b7a5b; color: #fff; }
+.muted { color: #5a6474; font-size: .88rem; }
+.btn { display: inline-block; background: #16233f; color: #fff; border: none; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: .95rem; margin: 4px 4px 4px 0; }
+.btn.secondary { background: #fff; color: #16233f; border: 1px solid #16233f; }
+.btn.danger { background: #c0392b; }
+.btn.small { padding: 6px 10px; font-size: .85rem; }
+.btn:disabled { opacity: .5; cursor: default; }
+label { display: block; font-weight: 600; margin: 10px 0 3px; font-size: .92rem; }
+input[type=text], input[type=tel], input[type=number], select, textarea { width: 100%; padding: 10px; border: 1px solid #b9c2d0; border-radius: 8px; font-size: 1rem; background: #fff; }
+textarea { min-height: 64px; }
+fieldset { border: 1px solid #dbe1ea; border-radius: 8px; margin: 10px 0; padding: 8px 12px; }
+legend { font-weight: 700; font-size: .9rem; }
+.suggest { background: #eef4ff; border: 1px solid #bcd0f5; border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: .92rem; }
+.suggest button { margin-left: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid #e3e8ef; vertical-align: top; }
+dialog { border: 1px solid #b9c2d0; border-radius: 12px; padding: 16px; max-width: 560px; width: calc(100vw - 32px); }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: #16233f; color: #fff; padding: 10px 16px; border-radius: 8px; z-index: 20; max-width: 92vw; }
+.foot { max-width: 720px; margin: 0 auto 20px; padding: 0 12px; color: #5a6474; font-size: .82rem; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: .95rem; }
+.kv dt { font-weight: 700; } .kv dd { margin: 0; }
+.attention { background: #fff8e6; border: 1px solid #e8a13a; border-radius: 10px; padding: 12px; margin: 10px 0; }

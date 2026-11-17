@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Dispatch MVP — Prototype (Fake Data)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <strong>Dispatch MVP</strong>
+    <span class="tag">PROTOTYPE — FAKE DATA ONLY</span>
+  </div>
+  <div class="who">
+    <label for="role-switch">Signed in as</label>
+    <select id="role-switch" aria-label="Switch fake user"></select>
+    <button id="reset-demo" type="button" class="btn small">Reset demo data</button>
+  </div>
+</header>
+
+<div id="alert-banner" class="alert-banner" hidden></div>
+<div class="warn">Test prototype on your own device — do not enter real live-dispatch caller or member data. Test data only.</div>
+
+<nav id="tabs" aria-label="Sections"></nav>
+
+<main id="view"></main>
+
+<dialog id="dlg">
+  <div id="dlg-body"></div>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+
+<p class="foot">Static prototype for single-phone testing. No server, no network calls, no real dispatch. Caller details are hidden in the UI only — this does <em>not</em> prove server-side privacy enforcement. See README.md.</p>
+
+<script src="seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
