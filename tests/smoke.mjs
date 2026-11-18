@@ -388,11 +388,19 @@ await sleep(400);
 const eta130 = await page.evaluate(() => { const c = DispatchStore.call("c1"); const r = c.responders.find((x) => x.userId === "u-m4"); return r && r.eta; });
 check("10: '1h 30m' accepted and stored as '1h 30m'", eta130 === "1h 30m", "eta=" + eta130);
 
-// (12) past responder on a closed call sees nothing without a grant
+// (12) PRIVACY REVERSAL (owner decision 2026-11-17, supersedes the
+// earlier judgment call): a past responder CAN see the caller on a
+// closed call; a non-responder still cannot without a grant.
 await setRole("u-m2");
 await openCard("INC-1039");
 t = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
-check("12: past responder cannot see caller on closed call", !t.includes("555-0104") && !t.includes("Dana Demo") && t.includes("Hidden after close"), t.slice(0, 200));
+check("12: past responder CAN see caller on closed call (reversal)", t.includes("555-0104") && t.includes("Dana Demo"), t.slice(0, 200));
+await closeDlg();
+await setRole("u-m4");
+await openCard("INC-1039");
+t = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+const reqBtn = await page.evaluate(() => !!document.querySelector('#dlg-body [data-action="request-hidden"]'));
+check("12: non-responder still cannot see caller on closed call without a grant", !t.includes("555-0104") && !t.includes("Dana Demo") && t.includes("Hidden after close") && reqBtn, t.slice(0, 200));
 await closeDlg();
 
 // (1b/15) Loan without the checkbox -> inline error; then create; next-action only
@@ -602,7 +610,8 @@ check("no-change: super admin has no New call or Requests tab", !tabsText.includ
 // 14. Card colors (decided rule): neutral = open + uncovered,
 // red = urgent + uncovered, blue = covered + not urgent,
 // red + COVERED badge + blue pills = urgent + covered (urgent wins).
-// Draft/closed keep the plain dark card.
+// Draft/closed carry their own classes now (section 17), not the
+// open-state classes.
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 await page.reload({ waitUntil: "networkidle0" });
 await sleep(400);
@@ -644,12 +653,13 @@ await gotoCallsTab();
 ci = await cardInfo("INC-1043");
 check("14d: urgent + covered call stays red, carries URGENT + COVERED badges", ci && ci.cls.includes("card-urgent-covered") && ci.urgent && ci.covered, JSON.stringify(ci));
 check("14d: urgent + covered responder pills are blue", ci && ci.pillBg === "rgb(37, 99, 235)", "pillBg=" + (ci && ci.pillBg));
-// draft and closed keep the plain dark treatment (no state class)
+// draft and closed carry their own classes (section 17), never an
+// open-state class
 const stateClasses = ["card-neutral", "card-urgent", "card-covered", "card-urgent-covered"];
 ci = await cardInfo("INC-1044");
-check("14e: draft card keeps the plain treatment, no state class", ci && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
+check("14e: draft card is card-draft, no open-state class", ci && ci.cls.includes("card-draft") && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
 ci = await cardInfo("INC-1039");
-check("14e: closed card keeps the plain treatment, no state class", ci && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
+check("14e: closed card is card-closed, no open-state class", ci && ci.cls.includes("card-closed") && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
 
 // 15. Navigation + Undo + banner (Instinct rerun, Nov 17 evening)
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
@@ -983,6 +993,79 @@ await closeDlg();
 await goTab("home");
 const homeDeny = await page.evaluate(() => document.body.innerText.includes("INC-1038") && /Denied by a dispatcher/.test(document.body.innerText));
 check("16-4: Home lists the denied request", homeDeny);
+
+// 17. Draft vs completed card style (owner's production screenshot,
+// Nov 17) + unit-code responder pills + privacy reversal (card level).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await setRole("u-disp");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
+await goTab("calls");
+const cardStyle = async (inc) => await page.evaluate((i) => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes(i));
+  if (!c) return null;
+  const cs = getComputedStyle(c);
+  const pin = c.querySelector(".card-addr .pin");
+  const strip = c.querySelector(".card-strip");
+  const town = c.querySelector(".strip-town");
+  const pill = c.querySelector(".pills .pill:not(.dim)");
+  return {
+    cls: [...c.classList],
+    border: cs.borderColor,
+    pin: pin ? getComputedStyle(pin).color : null,
+    stripBg: strip ? getComputedStyle(strip).backgroundColor : null,
+    stripTown: town ? town.textContent : null,
+    stripTownUpper: town ? getComputedStyle(town).textTransform : null,
+    pillTexts: [...c.querySelectorAll(".pills .pill")].map((p) => p.textContent),
+    pillBg: pill ? getComputedStyle(pill).backgroundColor : null,
+    pillColor: pill ? getComputedStyle(pill).color : null,
+  };
+}, inc);
+// (17a) Draft INC-1044 (Pittston): gray card, gray pin, plain gray
+// strip with no town text.
+let ds = await cardStyle("INC-1044");
+check("17a: draft card is gray — card-draft, gray pin, gray strip, no town text", ds && ds.cls.includes("card-draft") && ds.pin === "rgb(138, 148, 166)" && ds.stripBg === "rgb(185, 191, 201)" && ds.stripTown === null, JSON.stringify(ds));
+// (17b) Closed INC-1039 (Kingston): blue border, bright blue pin,
+// blue strip with the town, white pill with blue unit-code text.
+ds = await cardStyle("INC-1039");
+check("17b: closed card is blue — card-closed, blue border, bright blue pin, blue strip with KINGSTON", ds && ds.cls.includes("card-closed") && ds.border === "rgb(37, 99, 235)" && ds.pin === "rgb(77, 141, 255)" && ds.stripBg === "rgb(37, 99, 235)" && ds.stripTown === "Kingston" && ds.stripTownUpper === "uppercase", JSON.stringify(ds));
+check("17b: closed responder pill is white with blue text, unit code PA-09", ds && ds.pillTexts.includes("PA-09") && ds.pillBg === "rgb(255, 255, 255)" && ds.pillColor === "rgb(29, 78, 216)", JSON.stringify(ds));
+// (17c) Open INC-1042 responder pill shows the unit code, not the name.
+ds = await cardStyle("INC-1042");
+check("17c: open responder pill shows unit code PA-05 (not the name)", ds && ds.pillTexts.includes("PA-05") && !ds.pillTexts.includes("Moishe"), JSON.stringify(ds));
+// (17d) Member without a unit code falls back to their first name.
+const zedId = await page.evaluate(() => { const r = DispatchStore.addMember("Zed Member", "555-0199", "member", false); return r.ok ? r.member.id : ("ERR:" + r.error); });
+await page.evaluate((id) => { DispatchStore.assign("c1", id); }, zedId);
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
+await goTab("calls");
+ds = await cardStyle("INC-1042");
+check("17d: member without a unit code shows first-name pill 'Zed' beside PA-05", ds && ds.pillTexts.includes("Zed") && ds.pillTexts.includes("PA-05"), JSON.stringify(ds));
+// (17e) Closed call with no parseable town: plain blue strip, no text.
+const noTownInc = await page.evaluate(() => {
+  const r = DispatchStore.createCall({ nature: "Other", address: "5 Nowhere Rd", callerName: "No Town", callerPhone: "555-0112" }, "key-notown-1");
+  if (!r.ok) return "ERR:" + r.error;
+  const c = DispatchStore.closeCall(r.call.id, "Corrected");
+  return c.ok ? r.call.incident : "CLOSE-ERR:" + c.error;
+});
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
+await goTab("calls");
+ds = await cardStyle(noTownInc);
+check("17e: closed call with no town has a plain blue strip, no town text", ds && ds.cls.includes("card-closed") && ds.stripBg === "rgb(37, 99, 235)" && ds.stripTown === null, JSON.stringify(ds));
+// (17f) Privacy reversal at card level: responder sees the caller on
+// the closed card; non-responder still sees the hidden line.
+await setRole("u-m2");
+const cardText = async (inc) => await page.evaluate((i) => { const c = [...document.querySelectorAll(".card")].find((x) => x.innerText.includes(i)); return c ? c.innerText : ""; }, inc);
+let ct = await cardText("INC-1039");
+check("17f: responder sees caller name+phone on the closed card", ct.includes("555-0104") && ct.includes("Dana Demo"), ct.slice(0, 200));
+await setRole("u-m4");
+ct = await cardText("INC-1039");
+check("17f: non-responder still sees the hidden line on the closed card", !ct.includes("555-0104") && !ct.includes("Dana Demo") && ct.includes("Caller hidden after close"), ct.slice(0, 200));
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 

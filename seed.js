@@ -5,13 +5,13 @@ window.DISPATCH_SEED = {
   org: { id: "org-1", name: "Chaverim of NEPA (Demo Org)" },
   callNatures: ["Flat Tire", "Dead Battery / Jump Start", "Lockout", "Out of Fuel", "Tow Needed", "Other"],
   users: [
-    { id: "u-super", name: "Sam Admin", role: "super-admin", phone: "555-0001", inventoryManager: false },
-    { id: "u-coord", name: "Rivka Coordinator", role: "coordinator", phone: "555-0002", inventoryManager: false },
-    { id: "u-disp", name: "Dana Dispatcher", role: "dispatcher", phone: "555-0003", inventoryManager: false },
-    { id: "u-m1", name: "Moishe Member", role: "member", phone: "555-0011", inventoryManager: false },
-    { id: "u-m2", name: "Yossi Member", role: "member", phone: "555-0012", inventoryManager: false },
-    { id: "u-m3", name: "Levi Member", role: "member", phone: "555-0013", inventoryManager: true },
-    { id: "u-m4", name: "Shmuel Member", role: "member", phone: "555-0014", inventoryManager: false }
+    { id: "u-super", name: "Sam Admin", role: "super-admin", phone: "555-0001", inventoryManager: false, unit: "" },
+    { id: "u-coord", name: "Rivka Coordinator", role: "coordinator", phone: "555-0002", inventoryManager: false, unit: "PA-01" },
+    { id: "u-disp", name: "Dana Dispatcher", role: "dispatcher", phone: "555-0003", inventoryManager: false, unit: "PA-02" },
+    { id: "u-m1", name: "Moishe Member", role: "member", phone: "555-0011", inventoryManager: false, unit: "PA-05" },
+    { id: "u-m2", name: "Yossi Member", role: "member", phone: "555-0012", inventoryManager: false, unit: "PA-09" },
+    { id: "u-m3", name: "Levi Member", role: "member", phone: "555-0013", inventoryManager: true, unit: "PA-19" },
+    { id: "u-m4", name: "Shmuel Member", role: "member", phone: "555-0014", inventoryManager: false, unit: "PA-21" }
   ],
   savedAddresses: [
     "100 Main St, Kingston, PA",

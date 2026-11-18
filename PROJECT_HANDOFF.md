@@ -17,7 +17,8 @@ Instinct findings batch 2026-11-17 (same day): 15 fixes from Instinct's phone-wi
 Card colors 2026-11-17 (same day): the owner's decision on the open question — urgent stays visually urgent, but the card also shows others are responding. Rule for open calls: neutral (white) when uncovered and not urgent, red when urgent and uncovered, blue when covered and not urgent, red + blue COVERED badge + blue responder pills when urgent and covered (urgent wins). PUSHED 2026-11-17 (commit 156405fa) and live-verified — live app.js and styles.css byte-match local (md5). See "Card colors — 2026-11-17" below.
 
 Navigation + undo + banner 2026-11-17 (same day, evening): Instinct's rerun of the live v=20261117-colors prototype (phone-size desktop Chrome, fake data only) re-verified all previous fixes and raised four new items — app-first navigation (first screen was ~480/844px of chrome), one-tap Correct with no undo, the Decided table still 585px wide, and announcement entries that never aged out. PUSHED 2026-11-17 (commit c5f0e46f) and live-verified — live app.js and styles.css byte-match local (md5), index.html serves ?v=20261117-nav. See "Navigation + undo + banner — 2026-11-17" below.
-Rerun #4 fixes 2026-11-17 (same day, evening): Instinct's rerun #4 of the live v=20261117-nav prototype (phone-size desktop Chrome, fake data only) re-verified the nav rebuild, banner dismiss, Decided table, Correct Undo, unassign two-tap, equipment-blocked close and Manage explanations, and raised four new items — fake-filled nature field, outcome codes without spaces, silent Add-equipment, member can't see own privacy-request status. **NOT YET PUSHED — parent pushes after verifying.** Asset version bumped to `?v=20261117-rerun4`. See "Rerun #4 fixes — 2026-11-17" below.
+Rerun #4 fixes 2026-11-17 (same day, evening): Instinct's rerun #4 of the live v=20261117-nav prototype (phone-size desktop Chrome, fake data only) re-verified the nav rebuild, banner dismiss, Decided table, Correct Undo, unassign two-tap, equipment-blocked close and Manage explanations, and raised four new items — fake-filled nature field, outcome codes without spaces, silent Add-equipment, member can't see own privacy-request status. PUSHED 2026-11-17 (commit 528a63e2) and live-verified — live app.js and styles.css byte-match local (md5), `outcomeLabel` + `Choose a call nature` present. See "Rerun #4 fixes — 2026-11-17" below.
+Draft vs completed card style 2026-11-17 (same day, evening): owner's production screenshot — draft cards go muted gray with a plain gray side strip, closed cards go blue with a bright blue side strip carrying the town vertically; responder pills show unit codes (new optional `unit` field, e.g. PA-01); PRIVACY REVERSAL — members who responded to a call CAN see its caller on the closed call. **NOT YET PUSHED — parent pushes after verifying.** Asset version bumped to `?v=20261117-draftclosed`. See "Draft vs completed card style — 2026-11-17" below.
 
 ## Architecture
 
@@ -40,7 +41,7 @@ Plain HTML/CSS/JS, no build step, no framework, no network calls.
   - **UI**: tab rendering per role, call detail dialog, forms. All
     persistence goes through Store; UI never touches localStorage
     directly.
-- `tests/smoke.mjs` — 67 headless-browser checks (puppeteer-core).
+- `tests/smoke.mjs` — 124 headless-browser checks (puppeteer-core).
 
 ## Data model (Store.state)
 
@@ -79,9 +80,10 @@ Returned → Closed. One active checkout per item, checked in the Store.
 Hidden data: member requests name+phone (callback-number-only while a
 call is open) → any dispatcher approves with a duration (15 min /
 30 min / 1 hr / forever) → grant is active until expiry → access ends.
-After a call closes, even past responders need an unexpired grant to
-see the caller (decided 2026-11-17, Instinct findings batch).
-Requests and grants are logged and visible to the coordinator.
+After a call closes, a member who RESPONDED to it keeps seeing the
+caller (owner reversal 2026-11-17, see Decision log); anyone else
+needs an unexpired grant. Requests and grants are logged and visible
+to the coordinator.
 
 ## Permission matrix (as built)
 
@@ -91,7 +93,7 @@ Requests and grants are logged and visible to the coordinator.
 | Create / put out / close / reopen / unassign calls | N | Y | Y | N | N |
 | Approve hidden-data requests | N | Y* | Y | N | N |
 | Respond to calls (with ETA) | N | Y | N | Y | (as member) |
-| See caller name + phone | N | Y | Y | Only while responding to an OPEN call, or with an unexpired grant; never on a closed call without a grant | (as member) |
+| See caller name + phone | N | Y | Y | While responding (open or closed) or with an unexpired grant; on a closed call, non-responders still need a grant | (as member) |
 | Request callback number / hidden data | N | — | — | Y (approval needed) | (as member) |
 | Request / clear backup | N | Y | Y | Y if on the call | (as member) |
 | Use equipment on a call | N | Y | Y | Y if on the call | (as member) |
@@ -134,6 +136,10 @@ GitHub: stainlesssteel770 / nepadispatch-mvp — not connected at
 build time.
 
 **Added 2026-11-17 (Instinct findings batch, item 12 — judgment call, reversible on the owner's word):** after a call closes, NOBODY sees the caller name+phone without an unexpired dispatcher-approved grant — including past responders. This follows the decided rule that caller data is requestable post-close via a grant; the prototype previously let a past responder keep seeing the caller on a closed call. Dispatcher/coordinator access is unchanged. If the owner wants past responders to keep seeing it, this is a one-line change in `Store.canSeeCaller`.
+
+**SUPERSEDED 2026-11-17 (owner decision, in reply to the 7 open questions — PRIVACY REVERSAL):** the judgment call above is reversed. A member who RESPONDED to a call CAN see its caller name+phone on the closed call — no grant needed. Everyone else (non-responders, members who never touched the call) still needs an unexpired approved grant to see the caller on a closed call. Implemented in `Store.canSeeCaller` (responder check now applies regardless of open/closed); dispatcher/coordinator access unchanged; super admin still sees nothing. Smoke section 13 check 12 was retargeted to the new rule, and section 17 checks it at card level too.
+
+**Added 2026-11-17 (owner decision, same reply — unit codes):** members have an optional `unit` field (e.g. "PA-01"). Responder pills show the unit code when the member has one, otherwise the member's first name. Seed members carry PA-01/02/05/09/19/21 (super admin has none — admin-only, never a responder). The member add/edit form has an optional Unit code field. No format is enforced; members without a code keep working exactly as before. NOT a new member identity — names, ids, and roles are unchanged; Reports/CSV/history still show names.
 
 **Added 2026-11-17 (owner clarification, Instinct rerun):** ETAs are not really ever adjusted — whatever is put in is what goes. So NO ETA-editing feature is needed at all (neither member nor dispatcher editing). Member un-respond stays dispatcher-only, as decided. The rerun's "member can't un-respond/correct ETA" item is therefore fully settled, not open.
 
@@ -481,7 +487,7 @@ the top (`window.scrollTo(0, 0)`) before tab clicks. This is a test
 harness artifact, not an app bug: a real user scrolls the tabs back
 into view before tapping.
 
-## Navigation + undo + banner — 2026-11-17 (NOT YET PUSHED)
+## Navigation + undo + banner — 2026-11-17 (PUSHED, commit c5f0e46f)
 
 Instinct's rerun (fresh on v=20261117-colors, phone-size desktop
 Chrome, fake data only; matrix at
@@ -787,5 +793,115 @@ to Flat Tire.
 ### Asset version
 
 `index.html` asset version bumped `?v=20261117-nav` →
-`?v=20261117-rerun4` (styles.css, seed.js, app.js). **NOT YET PUSHED —
-parent pushes after verifying.**
+`?v=20261117-rerun4` (styles.css, seed.js, app.js). PUSHED 2026-11-17 (commit 528a63e2) and live-verified — live app.js and styles.css byte-match local (md5).
+
+## Draft vs completed card style — 2026-11-17
+
+Owner's screenshot of the production Chaveirim PA app (layout/style
+reference only — its blurred addresses, phones, and names were NOT
+copied into seed data): the top card is a DRAFT, the bottom two are
+COMPLETED. This batch applies exactly that draft-vs-completed style
+to the prototype's cards. Open / urgent / covered card colors are
+unchanged (white / red / blue, urgent wins — already decided). No
+date separators, search bar, red FAB buttons, or extra info line
+from the photo — draft/closed card style only.
+
+### 1. Draft card — muted gray
+
+New class `card-draft` (`callCard()` in `app.js`, rules in
+`styles.css`): dimmer desaturated navy background, gray border, gray
+pin/info/phone/clip icons, muted text, gray action-bar segments. A
+plain light-gray vertical strip (`.card-strip.strip-draft`) runs down
+the card's right edge, full height, with no text.
+
+### 2. Completed (closed) card — blue
+
+New class `card-closed`: dark navy kept, bright blue border all
+around, bright blue pin/info/phone/clip icons, responder pills white
+with bold blue text (as in the photo). A bright blue vertical strip
+(`.card-strip.strip-closed`) runs down the right edge carrying the
+town of the call in vertical white uppercase text, reading
+bottom-to-top (`writing-mode: vertical-rl` + 180deg turn), e.g.
+"KINGSTON". The town is parsed from the address by `townOf()` (the
+part before the state: "100 Main St, Kingston, PA" → "Kingston");
+when no town is parseable the strip renders plain blue with no text.
+
+### 3. Side strip mechanics
+
+The strip replaces the base card's 6px accent right edge
+(`border-right-width: 1px` on draft/closed cards): the card gets
+`position: relative` + `padding-right: 50px` so content clears the
+26px strip, and the action bar ends at the strip's left edge
+(`margin-right: -24px`, bottom-right corner square) instead of
+running under it. The strip is `aria-hidden` (decorative — the town
+is already in the address line). Open cards have no strip.
+
+### 4. Unit-code responder pills (owner decision, same night)
+
+New optional `unit` field on members (e.g. "PA-01"). Responder
+pills show the unit code when the member has one, otherwise the
+member's first name (`responderLabel()` in `app.js`). Seed members:
+coordinator PA-01, dispatcher PA-02, members PA-05 / PA-09 / PA-19 /
+PA-21; super admin has none (admin-only, never a responder). The
+member add/edit form has an optional Unit code field (no format
+enforced); `Store.addMember` / `Store.editMember` take the unit as
+an extra trailing argument, so existing callers keep working.
+Reports, CSV, history, and the call-detail responder line still show
+names — only the pills use the code. Pills keep the white-background
+/ bold-blue-text style from the photo.
+
+### 5. Privacy reversal (owner decision, same night)
+
+Supersedes the Instinct-batch judgment call (see Decision log):
+`Store.canSeeCaller` now returns true for a member who responded to
+the call whether it is open OR closed. Non-responders on a closed
+call still need an unexpired approved grant; dispatcher/coordinator
+access unchanged; super admin still sees nothing. The closed-card
+"Caller hidden after close" line still shows for non-responders.
+Smoke section 13 check 12 was retargeted to the new rule.
+
+### NOT built in this batch (owner-approved, later batch)
+
+- Correct confirm step (pop-up toast asking Corrected / Not
+  corrected / Cancelled).
+- Respond-on-card for members.
+- Tile menu page — owner said no; the hamburger drawer stays.
+
+### Tests
+
+New `tests/smoke.mjs` section 17 (9 checks; **124/124 total** in
+headless Chrome at 390×844, served over local HTTP; zero page
+errors):
+
+- (17a) Draft INC-1044: `card-draft`, gray pin `rgb(138, 148, 166)`,
+  gray strip `rgb(185, 191, 201)`, no town text.
+- (17b) Closed INC-1039: `card-closed`, blue border + blue strip
+  `rgb(37, 99, 235)`, bright blue pin `rgb(77, 141, 255)`, strip
+  town "Kingston" with `text-transform: uppercase`; pill white
+  `rgb(255, 255, 255)` with blue text `rgb(29, 78, 216)`, text
+  "PA-09".
+- (17c) Open INC-1042 responder pill shows "PA-05", not the name.
+- (17d) A member added without a unit code falls back to the
+  first-name pill ("Zed" beside "PA-05").
+- (17e) A closed call whose address has no parseable town
+  ("5 Nowhere Rd") gets a plain blue strip with no town text.
+- (17f) Privacy reversal at card level: responder u-m2 sees caller
+  name+phone on the closed INC-1039 card; non-responder u-m4 sees
+  the hidden line.
+
+Two pre-existing checks were retargeted (not weakened): section 14e
+(draft/closed now carry `card-draft` / `card-closed` instead of "no
+state class") and section 13 check 12 (past responder CAN see the
+caller on a closed call; a non-responder still cannot without a
+grant).
+
+Test note: `textContent` of the town is "Kingston" — the uppercase
+is CSS (`text-transform`), so the check asserts the computed
+`text-transform: uppercase` alongside the text (first run failed on
+exactly this, app was correct).
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261117-rerun4` →
+`?v=20261117-draftclosed` (styles.css, seed.js, app.js). **NOT YET
+PUSHED — parent pushes after verifying.**

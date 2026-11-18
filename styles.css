@@ -75,8 +75,9 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 /* ----- call cards (dark navy, reference layout) ----- */
 .card { background: var(--card); color: var(--card-ink); border: 1px solid #2a3c63; border-radius: var(--radius); padding: 16px 16px 14px; margin: 12px 0; box-shadow: 0 6px 18px rgba(10, 20, 40, .22); border-right: 6px solid var(--accent); transition: box-shadow .18s ease, transform .18s ease; }
 .card.backup { border-right-color: var(--amber); }
-/* ----- call-card states (open calls only; draft/closed keep the
-   plain dark card above). Urgent wins over covered: an urgent +
+/* ----- call-card states (open calls: neutral/urgent/covered.
+   Draft/closed have their own rules below, per the owner's
+   production screenshot.) Urgent wins over covered: an urgent +
    covered call stays red, with a blue COVERED badge and blue pills. */
 .card-neutral { background: #fff; color: var(--ink); border-color: var(--line); border-right-color: #9aa5b1; box-shadow: 0 2px 8px rgba(10, 20, 40, .08); }
 .card-neutral .card-addr { color: var(--ink); }
@@ -124,6 +125,41 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 .card-urgent-covered .pill { background: #2563eb; color: #fff; border-color: #2563eb; }
 /* On a blue card the COVERED badge is white-on-blue so it still reads. */
 .card-covered .badge.covered { background: #fff; color: #1d4ed8; }
+/* ----- draft / closed card style (owner's production screenshot,
+   2026-11-17): draft = muted gray with a plain gray side strip and
+   no colour; closed = blue border, bright blue icons, a bright blue
+   side strip carrying the town vertically, white pills with blue
+   text. The strip replaces the base card's 6px accent right edge,
+   so the right padding grows to clear it and the action bar ends at
+   the strip's left edge instead of running under it. */
+.card-draft, .card-closed { position: relative; padding-right: 50px; border-right-width: 1px; }
+.card-strip { position: absolute; top: 0; right: 0; bottom: 0; width: 26px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0 17px 17px 0; }
+.strip-draft { background: #b9bfc9; }
+.strip-closed { background: #2563eb; }
+/* Town reads bottom-to-top, as in the photo (vertical-rl runs
+   top-to-bottom; the 180deg turn flips it). */
+.strip-town { writing-mode: vertical-rl; transform: rotate(180deg); color: #fff; font-weight: 800; font-size: .85rem; letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
+.card-draft .card-bar, .card-closed .card-bar { margin: 16px -24px -14px -16px; border-radius: 0 0 0 17px; }
+/* Draft: dimmer all over — gray border, gray icons, muted text. */
+.card-draft { background: #232e4a; border-color: #6b7486; box-shadow: 0 6px 18px rgba(10, 20, 40, .18); }
+.card-draft .card-addr { color: #d7dee9; }
+.card-draft .card-addr .pin, .card-draft .card-row .ic { color: #8a94a6; }
+.card-draft .card-inc, .card-draft .card-row .val { color: #c3ccd9; }
+.card-draft .card-row .val strong { color: #e3e8f0; }
+.card-draft .card-row .val.dim, .card-draft .card-inc .time, .card-draft .card-chev { color: #8a94a6; }
+.card-draft .pill { background: transparent; color: #9aa5b1; border-color: #5f6b80; }
+.card-draft .pill.dim { color: #8a94a6; border-color: #5f6b80; }
+.card-draft .card-bar { border-top-color: #3a4763; background: rgba(255, 255, 255, .02); }
+.card-draft .bar-seg { border-right-color: #3a4763; color: #8a94a6; }
+.card-draft .bar-seg:hover { color: #d7dee9; background: rgba(255, 255, 255, .05); }
+.card-draft a { color: #9aa5b1; }
+/* Closed: blue border, bright blue icons, white pills with blue text. */
+.card-closed { background: #1b2a4a; border-color: #2563eb; }
+.card-closed .card-addr .pin, .card-closed .card-row .ic { color: #4d8dff; }
+.card-closed .pill { background: #fff; color: #1d4ed8; border-color: #1d4ed8; }
+.card-closed .pill.dim { background: transparent; color: #bfdbfe; border-color: rgba(255, 255, 255, .5); }
+.card-closed .card-bar { border-top-color: #2563eb; }
+.card-closed .bar-seg { border-right-color: rgba(255, 255, 255, .18); }
 .card h3 { color: #fff; font-size: 1.05rem; }
 .card .muted { color: var(--card-mute); }
 .card a { color: #9db8ff; }

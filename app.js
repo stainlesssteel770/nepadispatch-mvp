@@ -189,16 +189,15 @@ var Store = {
         (!g.expiresAt || new Date(g.expiresAt).getTime() > now);
     }) || null;
   },
-  // Caller name/phone visible to: dispatcher/coordinator always; a member
-  // only while responding to an OPEN call, or with an unexpired approved
-  // grant. Once a call is CLOSED, nobody sees the caller without an
-  // unexpired grant — including past responders (decided 2026-11-17,
-  // Instinct findings batch; reversible on the owner's word).
-  // Super admin (admin-only) does NOT see caller details.
+  // Caller name/phone visible to: dispatcher/coordinator always; a
+  // member who responded to the call — open OR closed (OWNER REVERSAL
+  // 2026-11-17: supersedes the 2026-11-17 judgment call that hid the
+  // caller from past responders on closed calls); anyone else only
+  // with an unexpired approved grant. Super admin (admin-only) does
+  // NOT see caller details.
   canSeeCaller: function (call, userId) {
     var me = this.user(userId); if (!me) return false;
     if (me.role === "dispatcher" || me.role === "coordinator") return true;
-    if (call.status === "closed") return !!this.activeGrant(call.id, userId);
     if (me.role === "member" && this.isResponding(call, userId)) return true;
     if (this.activeGrant(call.id, userId)) return true;
     return false;
@@ -427,19 +426,19 @@ var Store = {
   },
 
   /* ----- manage: members, natures, addresses, fleet, equipment ----- */
-  addMember: function (name, phone, role, inventoryManager) {
+  addMember: function (name, phone, role, inventoryManager, unit) {
     if (!name || !name.trim()) return { ok: false, error: "Member name is required." };
     if (["super-admin", "coordinator", "dispatcher", "member"].indexOf(role) === -1) return { ok: false, error: "Pick a valid role." };
     if (phone && phone.trim() && phone.replace(/\D/g, "").length < 7) return { ok: false, error: "Enter a valid phone number (at least 7 digits)." };
-    var m = { id: uid("u"), name: name.trim(), phone: phone || "", role: role, inventoryManager: !!inventoryManager };
+    var m = { id: uid("u"), name: name.trim(), phone: phone || "", role: role, inventoryManager: !!inventoryManager, unit: (unit || "").trim() };
     this.state.users.push(m); this.log("Member added: " + m.name + " (" + role + ")"); this.save();
     return { ok: true, member: m };
   },
-  editMember: function (id, name, phone, role, inventoryManager) {
+  editMember: function (id, name, phone, role, inventoryManager, unit) {
     var m = this.user(id); if (!m) return { ok: false, error: "Member not found." };
     if (!name || !name.trim()) return { ok: false, error: "Member name is required." };
     if (phone && phone.trim() && phone.replace(/\D/g, "").length < 7) return { ok: false, error: "Enter a valid phone number (at least 7 digits)." };
-    m.name = name.trim(); m.phone = phone || ""; m.role = role; m.inventoryManager = !!inventoryManager;
+    m.name = name.trim(); m.phone = phone || ""; m.role = role; m.inventoryManager = !!inventoryManager; m.unit = (unit || "").trim();
     this.log("Member edited: " + m.name); this.save(); return { ok: true };
   },
   addNature: function (name) {
@@ -553,11 +552,33 @@ var ICONS = {
 // icon-led rows (what / phone / notes), responder pills, then a
 // 5-icon action bar — Add, Backup, Correct, Call, Maps. Only the
 // actions the signed-in role may use are shown (hide, don't disable).
+// Town for a call card's side strip (closed cards): the part of the
+// address before the state ("100 Main St, Kingston, PA" -> "Kingston").
+// Returns "" when no town is parseable — the strip then renders plain.
+function townOf(address) {
+  var parts = String(address || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  if (parts.length < 2) return "";
+  var last = parts[parts.length - 1];
+  var town = /^[A-Za-z]{2}(\s+\d{5}(-\d{4})?)?$/.test(last) ? parts[parts.length - 2] : last;
+  if (!town || /^\d/.test(town)) return ""; // a street address is not a town
+  return town;
+}
+// Responder pill label: the member's unit code when they have one
+// (owner decision 2026-11-17), otherwise their first name.
+function responderLabel(u) {
+  if (!u) return "?";
+  if (u.unit && u.unit.trim()) return u.unit.trim();
+  return u.name.split(" ")[0];
+}
+
 // Card colour (open calls only): neutral = open and uncovered,
 // red = urgent and uncovered, blue = covered and not urgent,
 // red + COVERED badge + blue pills = urgent and covered (urgent wins,
-// the blue signal says others are already responding). Draft and
-// closed cards keep the plain dark treatment.
+// the blue signal says others are already responding).
+// Draft cards are muted gray with a plain gray side strip, no colour.
+// Closed cards are blue: blue border, bright blue icons, a bright blue
+// side strip carrying the town vertically, white pills with blue text
+// (owner's production screenshot, 2026-11-17).
 // The whole card is tappable: tapping anywhere on the card body opens
 // the call detail (the card itself carries data-action="open-call");
 // taps on action-bar buttons/links keep their own behaviour — the
@@ -576,7 +597,7 @@ function callCard(c) {
   if (c.status === "closed") badges.push('<span class="badge closed">CLOSED — ' + esc(outcomeLabel(c.outcome)) + '</span>');
   var time = new Date(c.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   var pills = c.responders.length
-    ? c.responders.map(function (r) { var u = Store.user(r.userId); return '<span class="pill">' + esc(u ? u.name.split(" ")[0] : "?") + "</span>"; }).join("")
+    ? c.responders.map(function (r) { var u = Store.user(r.userId); return '<span class="pill">' + esc(responderLabel(u)) + "</span>"; }).join("")
     : '<span class="pill dim">No one yet</span>';
   var mapsUrl = c.mapsLink || ("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(c.address));
   var bar = '<div class="card-bar">';
@@ -599,8 +620,19 @@ function callCard(c) {
   if (isOpen) {
     if (c.urgent) stateClass = covered ? " card-urgent-covered" : " card-urgent";
     else stateClass = covered ? " card-covered" : " card-neutral";
+  } else if (c.status === "draft") stateClass = " card-draft";
+  else if (c.status === "closed") stateClass = " card-closed";
+  // Side strip (draft/closed only, per the production screenshot):
+  // draft = plain light-gray strip, no text; closed = bright blue
+  // strip carrying the town vertically (bottom-to-top), plain blue
+  // when no town is parseable from the address.
+  var strip = "";
+  if (c.status === "draft") strip = '<span class="card-strip strip-draft" aria-hidden="true"></span>';
+  else if (c.status === "closed") {
+    var town = townOf(c.address);
+    strip = '<span class="card-strip strip-closed" aria-hidden="true">' + (town ? '<span class="strip-town">' + esc(town) + "</span>" : "") + "</span>";
   }
-  return '<article class="card call-card' + stateClass + (c.backupNeeded ? " backup" : "") + '" data-action="open-call" data-id="' + c.id + '" tabindex="0" role="button" aria-label="Open ' + esc(c.incident) + ' — ' + esc(c.nature) + '">' +
+  return '<article class="card call-card' + stateClass + (c.backupNeeded ? " backup" : "") + '" data-action="open-call" data-id="' + c.id + '" tabindex="0" role="button" aria-label="Open ' + esc(c.incident) + ' — ' + esc(c.nature) + '">' + strip +
     '<div class="card-head"><div class="card-addr"><span class="pin">' + ICONS.pin + "</span>" + esc(c.address) + '</div>' +
     '<div class="card-inc">' + esc(c.incident) + '<span class="time">' + esc(time) + "</span></div>" +
     '<span class="card-chev" aria-hidden="true">' + ICONS.chev + "</span></div>" +
@@ -1151,7 +1183,7 @@ function viewData() {
 
 /* ----- dialogs for editing ----- */
 function memberFormHTML(m) {
-  m = m || { id: "", name: "", phone: "", role: "member", inventoryManager: false };
+  m = m || { id: "", name: "", phone: "", role: "member", inventoryManager: false, unit: "" };
   // novalidate: native `required` blocks the submit event and Chrome
   // shows no validation bubble inside a <dialog>, so an empty name
   // failed silently (dialog stayed open, no error, no item). JS
@@ -1159,6 +1191,7 @@ function memberFormHTML(m) {
   return "<h2>" + (m.id ? "Edit member" : "Add member") + "</h2><form id=\"member-form\" data-id=\"" + m.id + "\" novalidate>" +
     '<label>Name <input type="text" name="name" value="' + esc(m.name) + '"></label>' +
     '<label>Phone <input type="tel" name="phone" value="' + esc(m.phone) + '" placeholder="At least 7 digits, if entered"></label>' +
+    '<label>Unit code <input type="text" name="unit" value="' + esc(m.unit || "") + '" placeholder="Optional — e.g. PA-01 (shown on responder pills)"></label>' +
     '<label>Role <select name="role">' + ["super-admin", "coordinator", "dispatcher", "member"].map(function (r) { return '<option value="' + r + '"' + (m.role === r ? " selected" : "") + ">" + roleLabel(r) + "</option>"; }).join("") + "</select></label>" +
     '<label><input type="checkbox" name="inventoryManager"' + (m.inventoryManager ? " checked" : "") + "> Inventory manager (add-on — keeps member abilities, adds inventory)</label>" +
     '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
@@ -1413,8 +1446,8 @@ document.addEventListener("submit", function (e) {
   }
   if (f.id === "member-form") {
     var mid = f.dataset.id;
-    r = mid ? Store.editMember(mid, fd.get("name"), fd.get("phone"), fd.get("role"), !!f.querySelector('[name="inventoryManager"]').checked)
-            : Store.addMember(fd.get("name"), fd.get("phone"), fd.get("role"), !!f.querySelector('[name="inventoryManager"]').checked);
+    r = mid ? Store.editMember(mid, fd.get("name"), fd.get("phone"), fd.get("role"), !!f.querySelector('[name="inventoryManager"]').checked, fd.get("unit"))
+            : Store.addMember(fd.get("name"), fd.get("phone"), fd.get("role"), !!f.querySelector('[name="inventoryManager"]').checked, fd.get("unit"));
     if (r.ok) { toast("Member saved."); closeDialog(); render(); }
     else dlgError(r.error, f);
     return;
