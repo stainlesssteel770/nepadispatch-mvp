@@ -16,7 +16,8 @@ Instinct findings batch 2026-11-17 (same day): 15 fixes from Instinct's phone-wi
 
 Card colors 2026-11-17 (same day): the owner's decision on the open question — urgent stays visually urgent, but the card also shows others are responding. Rule for open calls: neutral (white) when uncovered and not urgent, red when urgent and uncovered, blue when covered and not urgent, red + blue COVERED badge + blue responder pills when urgent and covered (urgent wins). PUSHED 2026-11-17 (commit 156405fa) and live-verified — live app.js and styles.css byte-match local (md5). See "Card colors — 2026-11-17" below.
 
-Navigation + undo + banner 2026-11-17 (same day, evening): Instinct's rerun of the live v=20261117-colors prototype (phone-size desktop Chrome, fake data only) re-verified all previous fixes and raised four new items — app-first navigation (first screen was ~480/844px of chrome), one-tap Correct with no undo, the Decided table still 585px wide, and announcement entries that never aged out. NOT YET PUSHED — parent pushes after verifying. See "Navigation + undo + banner — 2026-11-17" below.
+Navigation + undo + banner 2026-11-17 (same day, evening): Instinct's rerun of the live v=20261117-colors prototype (phone-size desktop Chrome, fake data only) re-verified all previous fixes and raised four new items — app-first navigation (first screen was ~480/844px of chrome), one-tap Correct with no undo, the Decided table still 585px wide, and announcement entries that never aged out. PUSHED 2026-11-17 (commit c5f0e46f) and live-verified — live app.js and styles.css byte-match local (md5), index.html serves ?v=20261117-nav. See "Navigation + undo + banner — 2026-11-17" below.
+Rerun #4 fixes 2026-11-17 (same day, evening): Instinct's rerun #4 of the live v=20261117-nav prototype (phone-size desktop Chrome, fake data only) re-verified the nav rebuild, banner dismiss, Decided table, Correct Undo, unassign two-tap, equipment-blocked close and Manage explanations, and raised four new items — fake-filled nature field, outcome codes without spaces, silent Add-equipment, member can't see own privacy-request status. **NOT YET PUSHED — parent pushes after verifying.** Asset version bumped to `?v=20261117-rerun4`. See "Rerun #4 fixes — 2026-11-17" below.
 
 ## Architecture
 
@@ -643,3 +644,148 @@ Harness notes from this batch (all test-side, not app bugs):
   server-side rules), keeping the UI and data model. Before that:
   connect GitHub, create `stainlesssteel770/nepadispatch-mvp`,
   push this tree, enable Pages, and test on the owner’s phone.
+
+## Rerun #4 fixes — 2026-11-17
+
+Instinct rerun #4 (same day ~19:35–19:50 EST, build v=20261117-nav,
+phone-size desktop Chrome, fake data only) re-verified the nav rebuild,
+banner dismiss, Decided table, Correct Undo, unassign two-tap,
+equipment-blocked close and Manage explanations. New items fixed 1–4;
+item 5 is an owner judgment (one-tap Correct still closes instantly —
+Undo ~8–9s and Reopen both work), left exactly as is. "Urgent + covered
+shows red" is already decided by the owner (red wins, blue COVERED
+signal) — no card-color change. The rerun's design proposals (white
+cards with strips, nature-first layout, respond-on-card ETA, PA-01
+badges, tile menu) are NOT approved and NOT part of this batch.
+
+### Item 1 — fake-filled nature field (root cause, probe-verified)
+
+The nature `<select>` had NO option marked `selected`. A native
+`<select>` then displays its FIRST option ("Flat Tire") as if chosen,
+while the form state was never set — so the screen showed a filled
+value that didn't count. Headless probe: `value: "Flat Tire",
+selectedIndex: 0, anySelectedAttr: false`; Review with the untouched
+default PASSED with `pendingNature: "Flat Tire"` — the error Instinct
+saw ("nature… required") was the combined missing-fields message
+naming nature first whenever the form was otherwise incomplete, which
+made the user blame the nature field that looked filled.
+
+Fix (placeholder route, `app.js`): the nature select now starts with
+an honest disabled placeholder option, `Choose a call nature…`
+(empty value, selected when the draft has no nature), and the form
+fails honestly with an inline error when nothing was picked. The
+combined error is gone: `missingCallFields(data)` /
+`callRequiredError(data)` name exactly the fields that are missing
+("Call nature is required." / "Call nature and Caller name are
+required." / "Call nature, Address and Caller name are required."),
+used by `Store.createCall` and `Store.updateDraft` and shown inline in
+the form's new `#nc-error` slot (the callback-number error goes there
+too). Rule added to the code comment: no field may display a value
+that doesn't count.
+
+Other selects audited, all OK (displayed value genuinely counts):
+alert radios default to Normal (checked in markup, matches Store
+default); loan-item select options are real items; Requests duration
+select is a real value; member role select matches the Store default
+("member"); equipment kind select matches the Store default
+("call-only").
+
+### Item 2 — outcome codes render without spaces
+
+New helper `outcomeLabel(code)` in `app.js` (returns
+`OUTCOME_LABELS[code][0]`, else the code) applied at all six render
+sites: call-card closed badge ("CLOSED — Not corrected" — note the
+badge has `text-transform: uppercase`, so the DOM text now carries the
+spaces), call-detail status line ("closed (Not corrected)"), Reports
+outcome column, My history outcome, exported CSV, and the closeCall
+activity-log text. Stored outcome codes are unchanged; only display
+changed. "On the way" and "Needs coordinator" render with spaces the
+same way.
+
+### Item 3 — Add equipment with empty name is silent (root cause)
+
+Native HTML `required` on the name input blocks the submit event, and
+Chrome shows no validation bubble inside a native `<dialog>` — so an
+empty name failed silently: dialog stayed open, no error, no item.
+Headless probe confirmed: `nameValidity: false`, `errVisible: false`,
+nothing created; same for the member form.
+
+Fix: `novalidate` added to member-form and equip-form and the
+`required` attribute removed from the name inputs; the Store's
+validation ("Item name is required." / "Member name is required.")
+now reaches the inline `dlgError` slot as the other forms do.
+
+Audit of every other dialog/form in the app (all in `app.js`):
+
+| Form | Before | Verdict |
+|---|---|---|
+| respond-form, close-form, loan-form | no `required` attrs; errors already route to `dlgError` | OK, no change |
+| member-form, equip-form | `required` on name, silent failure | FIXED (novalidate + remove `required`) |
+| new-call-form (not a dialog) | JS validation, errors were toast-only | improved: inline `#nc-error` (item 1) |
+| Manage inline adds (nature/address/fleet) | no `required`; Store errors surface via `toastErr` | OK, no change |
+| import-form (missing file) | `toastErr` | OK, no change |
+| nature/address/fleet renames via `prompt()` | empty input → Store error → `toastErr` | OK, feedback exists; native-prompt replacement still deferred |
+
+### Item 4 — member can't see their own privacy-request status
+
+Two views added; the approval flow and who can approve are unchanged:
+
+(a) Call detail dialog (`callDetailHTML`): if the signed-in
+member/coordinator has a request for this call, a "Your request" row
+shows its status — "Pending dispatcher approval." / "Approved — you
+can see the caller until <time> / forever." / "Approved grant expired
+<time> — you can request again." / "Denied by a dispatcher — you can
+request again." (replaces the old "Your grant" row, which only
+covered the approved case). While a request is pending or an active
+grant exists, the request button for that call is hidden, not just
+rejected on tap — no duplicate request. The existing member-facing
+`Store.requestHidden` guard ("Request already pending") still stands
+behind it.
+
+(b) Home tab (`viewHome`): a new "My privacy requests" section after
+"My calls right now", listing the signed-in user's own requests
+(call incident + nature, fields, status, expiry where applicable)
+with an "Open call" button per row. Only renders when the user has
+requests.
+
+### Tests
+
+New `tests/smoke.mjs` section 16 (24 checks; **115/115 total** in
+`tests/smoke.mjs`, run in headless Chrome 390×844, served over local
+HTTP; zero page errors):
+
+- (1) Nature placeholder shows with nothing pre-filled; Review with
+  no nature fails honestly with inline `#nc-error` naming nature;
+  picking a nature lets Review pass; the missing-fields error names
+  exactly the missing fields; alert radios genuinely default to
+  Normal.
+- (2) Call INC-1043 closed as NotCorrected shows "Not corrected"
+  with spaces on the card badge (asserted on `textContent`, because
+  the badge has `text-transform: uppercase`), in the detail status
+  line, in My history, in the Reports outcome column, and in the
+  exported CSV (captured by overriding `URL.createObjectURL` in
+  `page.evaluate` and reading `blob.text()`); stored code stays
+  "NotCorrected".
+- (3) Add equipment / Add member / Edit equipment with an empty name
+  show an inline `dlgError` and create/change nothing, then succeed
+  with a name; nature-add with an empty name shows an error toast
+  (audit coverage).
+- (4) Member requests on closed INC-1039 → status "Pending
+  dispatcher approval" in the detail + no duplicate request button +
+  Home "My privacy requests" lists it with an Open-call link that
+  opens the call; dispatcher approves 30 min → detail shows
+  "Approved — you can see the caller until …" + caller visible +
+  still no duplicate button, Home shows "Approved until …"; deny path
+  on INC-1038 → detail shows "Denied by a dispatcher" + request
+  button returns, Home shows "Denied".
+
+Two pre-existing checks were retargeted (not weakened): section 2 and
+section 13(4) now explicitly pick a nature before Review, because the
+placeholder means "not chosen" — the form no longer silently defaults
+to Flat Tire.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261117-nav` →
+`?v=20261117-rerun4` (styles.css, seed.js, app.js). **NOT YET PUSHED —
+parent pushes after verifying.**

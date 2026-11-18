@@ -80,6 +80,23 @@ function parseETA(input) {
   return min + " min";
 }
 
+// Required call fields, named exactly when missing so an error can
+// never blame a field the user already filled.
+function missingCallFields(data) {
+  var missing = [];
+  if (!data.nature) missing.push("Call nature");
+  if (!data.address) missing.push("Address");
+  if (!data.callerName) missing.push("Caller name");
+  return missing;
+}
+function callRequiredError(data) {
+  var m = missingCallFields(data);
+  if (!m.length) return null;
+  if (m.length === 1) return m[0] + " is required.";
+  if (m.length === 2) return m[0] + " and " + m[1] + " are required.";
+  return m[0] + ", " + m[1] + " and " + m[2] + " are required.";
+}
+
 function freshSeed() {
   var s = clone(window.DISPATCH_SEED);
   s.currentUserId = "u-disp";
@@ -194,7 +211,7 @@ var Store = {
       var existing = this.state.calls.find(function (c) { return c.idemKey === idemKey; });
       if (existing) return { ok: true, duplicate: true, call: existing };
     }
-    if (!data.nature || !data.address || !data.callerName) return { ok: false, error: "Call nature, address and caller name are required." };
+    if (!data.nature || !data.address || !data.callerName) { var e1 = callRequiredError(data); return { ok: false, error: e1 }; }
     var digits = (data.callerPhone || "").replace(/\D/g, "");
     if (digits.length < 7) return { ok: false, error: "Enter a valid callback number (at least 7 digits)." };
     var call = {
@@ -240,7 +257,8 @@ var Store = {
   updateDraft: function (callId, data, status) {
     var c = this.call(callId);
     if (!c || c.status !== "draft") return { ok: false, error: "Only a draft can be edited." };
-    if (!data.nature || !data.address || !data.callerName) return { ok: false, error: "Call nature, address and caller name are required." };
+    var e2 = callRequiredError(data);
+    if (e2) return { ok: false, error: e2 };
     var digits = (data.callerPhone || "").replace(/\D/g, "");
     if (digits.length < 7) return { ok: false, error: "Enter a valid callback number (at least 7 digits)." };
     c.nature = data.nature; c.address = data.address; c.vehicle = data.vehicle || "";
@@ -322,7 +340,7 @@ var Store = {
     c.status = "closed"; c.outcome = outcome; c.closedAt = nowISO(); c.backupNeeded = false;
     // Closing also clears any backup alert for this call.
     this.state.alerts = this.state.alerts.filter(function (a) { return !(a.kind === "backup" && a.callId === callId); });
-    this.log(c.incident + " closed as " + outcome + " by " + this.me().name); this.save();
+    this.log(c.incident + " closed as " + outcomeLabel(outcome) + " by " + this.me().name); this.save();
     return { ok: true };
   },
   reopenCall: function (callId) {
@@ -555,7 +573,7 @@ function callCard(c) {
   if (covered) badges.push('<span class="badge covered">COVERED</span>');
   if (c.backupNeeded) badges.push('<span class="badge backup">BACKUP NEEDED</span>');
   if (c.status === "draft") badges.push('<span class="badge draft">DRAFT</span>');
-  if (c.status === "closed") badges.push('<span class="badge closed">CLOSED — ' + esc(c.outcome || "") + '</span>');
+  if (c.status === "closed") badges.push('<span class="badge closed">CLOSED — ' + esc(outcomeLabel(c.outcome)) + '</span>');
   var time = new Date(c.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   var pills = c.responders.length
     ? c.responders.map(function (r) { var u = Store.user(r.userId); return '<span class="pill">' + esc(u ? u.name.split(" ")[0] : "?") + "</span>"; }).join("")
@@ -718,6 +736,25 @@ function viewHome() {
   if (backup.length) h += '<div class="attention"><strong>Backup needed:</strong> ' + backup.map(function (c) { return esc(c.incident) + " — " + esc(c.nature); }).join("; ") + "</div>";
   if (mine.length) h += "<h2>My calls right now</h2>" + mine.map(callCard).join("");
   else h += "<p>You are not responding to any call right now.</p>";
+  // My privacy requests (item 4b): the signed-in member's own
+  // hidden-data requests, with status and a link back to each call —
+  // so a request is still visible after its toast fades.
+  var myReqs = Store.state.hiddenRequests.filter(function (r) { return r.requesterId === me.id; });
+  if (myReqs.length) {
+    h += "<h2>My privacy requests</h2>" + myReqs.map(function (r) {
+      var rc = Store.call(r.callId);
+      var st;
+      if (r.status === "pending") st = "Pending dispatcher approval";
+      else if (r.status === "approved") {
+        st = (r.expiresAt && new Date(r.expiresAt).getTime() <= Date.now())
+          ? "Approved — grant expired " + fmtDT(r.expiresAt)
+          : "Approved" + (r.expiresAt ? " until " + fmtDT(r.expiresAt) : " (forever)");
+      } else st = "Denied by a dispatcher";
+      return '<article class="card light"><h3>' + esc(rc ? rc.incident : r.callId) + (rc ? " — " + esc(rc.nature) : "") + "</h3>" +
+        '<p class="muted">Fields: ' + esc(r.fields.join(", ")) + " · " + esc(st) + "</p>" +
+        (rc ? '<button class="btn small" data-action="open-call" data-id="' + rc.id + '">Open call</button>' : "") + "</article>";
+    }).join("");
+  }
   if (needMe.length && (me.role === "member" || me.role === "coordinator")) {
     h += "<h2>Open calls needing a response</h2>" + needMe.map(callCard).join("");
   } else if (me.role === "dispatcher" || me.role === "coordinator") {
@@ -743,7 +780,14 @@ function viewNewCall() {
   // nothing has to be retyped.
   var d = App.pendingCall || {};
   var editing = App.editingDraftId ? Store.call(App.editingDraftId) : null;
-  var opts = s.callNatures.map(function (n) { return '<option value="' + esc(n) + '"' + (d.nature === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("");
+  // The nature field shows an honest placeholder until the user picks
+  // one: a native <select> with no option marked selected displays its
+  // FIRST option ("Flat Tire") as if chosen, while nothing was ever
+  // set — so a user who never touched the dropdown could be blamed
+  // for a "nature required" error on a value the screen showed as
+  // filled. No field may display a value that doesn't count.
+  var opts = '<option value="" disabled' + (d.nature ? "" : " selected") + ">Choose a call nature…</option>" +
+    s.callNatures.map(function (n) { return '<option value="' + esc(n) + '"' + (d.nature === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("");
   var alertKind = d.alertKind || "normal";
   var h = "<h1>" + (editing ? "Edit draft " + esc(editing.incident) : "New call") + "</h1>";
   h += '<form id="new-call-form">' +
@@ -763,6 +807,7 @@ function viewNewCall() {
     '<label><input type="radio" name="alertKind" value="none"' + (alertKind === "none" ? " checked" : "") + '> Don’t notify — create silently</label></fieldset>' +
     '<label><input type="checkbox" id="nc-save-addr"' + (d.saveAddress ? " checked" : "") + '> Save this address for next time</label>' +
     '<label><input type="checkbox" id="nc-exclude-addr"> Exclude this address from history suggestions</label>' +
+    '<div id="nc-error" class="dlg-error" role="alert" hidden></div>' +
     '<div><button class="btn" type="submit">Review call</button></div>' +
     "</form><div id=\"nc-summary\"></div>";
   return h;
@@ -814,13 +859,31 @@ var OUTCOME_LABELS = {
   Cancelled: ["Cancelled", "Caller cancelled before help arrived"]
 };
 
+// Display label for a stored outcome code (codes stay in the store;
+// only the display uses friendly text with spaces). Defined here,
+// next to OUTCOME_LABELS; callCard() above may call it because it only
+// runs after the whole script has loaded.
+function outcomeLabel(code) { var L = OUTCOME_LABELS[code]; return L ? L[0] : (code || ""); }
+
 function callDetailHTML(c) {
   var me = Store.me();
   var canSee = Store.canSeeCaller(c, me.id);
   var responding = Store.isResponding(c, me.id);
   var grant = Store.activeGrant(c.id, me.id);
+  // The signed-in member's own request for this call, if any: prefer
+  // a pending one, then an active approved grant, then the most recent
+  // decided one. Shown as a status line below (item 4a) so a member
+  // can see where their request stands after the toast fades.
+  var myReq = null;
+  if (me.role === "member" || me.role === "coordinator") {
+    var myReqs = Store.state.hiddenRequests.filter(function (r) { return r.callId === c.id && r.requesterId === me.id; });
+    var nowMs = Date.now();
+    myReq = myReqs.find(function (r) { return r.status === "pending"; }) ||
+      myReqs.find(function (r) { return r.status === "approved" && (!r.expiresAt || new Date(r.expiresAt).getTime() > nowMs); }) ||
+      (myReqs.length ? myReqs[0] : null);
+  }
   var h = "<h2>" + esc(c.incident) + " — " + esc(c.nature) + "</h2>";
-  h += '<dl class="kv"><dt>Status</dt><dd>' + esc(c.status) + (c.outcome ? " (" + esc(c.outcome) + ")" : "") + "</dd>" +
+  h += '<dl class="kv"><dt>Status</dt><dd>' + esc(c.status) + (c.outcome ? " (" + esc(outcomeLabel(c.outcome)) + ")" : "") + "</dd>" +
     "<dt>Address</dt><dd>" + esc(c.address) + "</dd>" +
     "<dt>Vehicle</dt><dd>" + esc(c.vehicle || "—") + "</dd>" +
     "<dt>Coordinates</dt><dd>" + esc(c.coordinates || "—") + "</dd>" +
@@ -833,7 +896,15 @@ function callDetailHTML(c) {
   } else {
     h += "<dt>Caller</dt><dd class=\"muted\">Hidden. Visible only while you are responding to this call, or with an approved grant.</dd>";
   }
-  if (grant) h += "<dt>Your grant</dt><dd>Approved access until " + (grant.expiresAt ? fmtDT(grant.expiresAt) : "forever") + ".</dd>";
+  if (myReq) {
+    var reqText;
+    if (myReq.status === "pending") reqText = "Pending dispatcher approval.";
+    else if (myReq.status === "approved") {
+      if (myReq.expiresAt && new Date(myReq.expiresAt).getTime() <= Date.now()) reqText = "Approved grant expired " + fmtDT(myReq.expiresAt) + " — you can request again.";
+      else reqText = "Approved — you can see the caller until " + (myReq.expiresAt ? fmtDT(myReq.expiresAt) : "forever") + ".";
+    } else reqText = "Denied by a dispatcher — you can request again.";
+    h += "<dt>Your request</dt><dd>" + reqText + "</dd>";
+  }
   h += "<dt>Responding</dt><dd>" + (c.responders.length ? c.responders.map(function (r) { return userName(r.userId) + " (ETA " + esc(r.eta) + ")"; }).join(", ") : "No one yet") + "</dd>";
   h += "<dt>Backup</dt><dd>" + (c.backupNeeded ? "NEEDED" : "Not needed") + "</dd>";
   h += "<dt>Equipment out</dt><dd>" + (c.equipmentOut.length ? c.equipmentOut.map(function (id) { var it = Store.item(id); return it ? esc(it.name) : id; }).join(", ") : "None") + "</dd></dl>";
@@ -858,7 +929,10 @@ function callDetailHTML(c) {
         h += '<button class="btn secondary" data-action="unassign" data-id="' + c.id + '" data-user="' + r.userId + '">Unassign ' + userName(r.userId) + "</button>";
       });
     }
-    if ((me.role === "member" || me.role === "coordinator") && !responding && !canSee) {
+    // No duplicate request while one is pending (or an active grant
+    // already covers the caller): the button is hidden, not just
+    // rejected on tap.
+    if ((me.role === "member" || me.role === "coordinator") && !responding && !canSee && !(myReq && myReq.status === "pending")) {
       h += '<button class="btn secondary" data-action="request-callback" data-id="' + c.id + '">Request callback number (dispatcher approval needed)</button>';
     }
     if (responding || Store.can("create-call")) {
@@ -891,7 +965,7 @@ function callDetailHTML(c) {
   }
   if (c.status === "closed") {
     if (Store.can("reopen")) h += '<button class="btn" data-action="reopen" data-id="' + c.id + '">Reopen call (responses, assignments and equipment stay as they were)</button>';
-    if (me.role === "member") h += '<button class="btn secondary" data-action="request-hidden" data-id="' + c.id + '">Request caller name + phone (dispatcher approval needed)</button>';
+    if (me.role === "member" && !(myReq && myReq.status === "pending") && !grant) h += '<button class="btn secondary" data-action="request-hidden" data-id="' + c.id + '">Request caller name + phone (dispatcher approval needed)</button>';
   }
   h += '<div><button class="btn secondary" data-action="close-dialog">Cancel</button></div>';
   return h;
@@ -974,7 +1048,7 @@ function viewReports() {
   var h = "<h1>Calls / incidents report</h1><p class=\"muted\">Coordinator and above only. Basic report in this version.</p>" +
     '<button class="btn" data-action="export-csv">Download CSV</button>' +
     '<div class="table-scroll"><table class="stack-narrow"><thead><tr><th>Incident</th><th>Date</th><th>Nature</th><th>Address</th><th>Outcome</th><th>Responders</th></tr></thead><tbody>' +
-    closed.map(function (c) { return "<tr><td data-label=\"Incident\">" + esc(c.incident) + "</td><td data-label=\"Date\">" + fmtDT(c.closedAt) + "</td><td data-label=\"Nature\">" + esc(c.nature) + "</td><td data-label=\"Address\">" + esc(c.address) + "</td><td data-label=\"Outcome\">" + esc(c.outcome || "") + "</td><td data-label=\"Responders\">" + c.responders.map(function (r) { return userName(r.userId); }).join(", ") + "</td></tr>"; }).join("") + "</tbody></table></div>";
+    closed.map(function (c) { return "<tr><td data-label=\"Incident\">" + esc(c.incident) + "</td><td data-label=\"Date\">" + fmtDT(c.closedAt) + "</td><td data-label=\"Nature\">" + esc(c.nature) + "</td><td data-label=\"Address\">" + esc(c.address) + "</td><td data-label=\"Outcome\">" + esc(outcomeLabel(c.outcome)) + "</td><td data-label=\"Responders\">" + c.responders.map(function (r) { return userName(r.userId); }).join(", ") + "</td></tr>"; }).join("") + "</tbody></table></div>";
   return h;
 }
 
@@ -1002,7 +1076,7 @@ function viewHistory() {
   var h = "<h1>My call history</h1><p class=\"muted\">Your own past calls. Caller name and number stay hidden after close unless you have an approved grant.</p>";
   h += mine.length ? mine.map(function (c) {
     return '<article class="card"><h3>' + esc(c.incident) + " — " + esc(c.nature) + "</h3>" +
-      "<dl class=\"kv\"><dt>Date</dt><dd>" + fmtDT(c.closedAt) + "</dd><dt>Outcome</dt><dd>" + esc(c.outcome || "") + "</dd>" +
+      "<dl class=\"kv\"><dt>Date</dt><dd>" + fmtDT(c.closedAt) + "</dd><dt>Outcome</dt><dd>" + esc(outcomeLabel(c.outcome)) + "</dd>" +
       "<dt>Caller</dt><dd>" + (Store.canSeeCaller(c, me.id) ? esc(c.callerName) + " — " + telLink(c.callerPhone) : "Hidden after close") + "</dd></dl>" +
       '<button class="btn small" data-action="open-call" data-id="' + c.id + '">Open call</button></article>';
   }).join("") : "<p>No closed calls you responded to yet.</p>";
@@ -1078,8 +1152,12 @@ function viewData() {
 /* ----- dialogs for editing ----- */
 function memberFormHTML(m) {
   m = m || { id: "", name: "", phone: "", role: "member", inventoryManager: false };
-  return "<h2>" + (m.id ? "Edit member" : "Add member") + "</h2><form id=\"member-form\" data-id=\"" + m.id + "\">" +
-    '<label>Name <input type="text" name="name" value="' + esc(m.name) + '" required></label>' +
+  // novalidate: native `required` blocks the submit event and Chrome
+  // shows no validation bubble inside a <dialog>, so an empty name
+  // failed silently (dialog stayed open, no error, no item). JS
+  // validation + the inline error slot below handles it instead.
+  return "<h2>" + (m.id ? "Edit member" : "Add member") + "</h2><form id=\"member-form\" data-id=\"" + m.id + "\" novalidate>" +
+    '<label>Name <input type="text" name="name" value="' + esc(m.name) + '"></label>' +
     '<label>Phone <input type="tel" name="phone" value="' + esc(m.phone) + '" placeholder="At least 7 digits, if entered"></label>' +
     '<label>Role <select name="role">' + ["super-admin", "coordinator", "dispatcher", "member"].map(function (r) { return '<option value="' + r + '"' + (m.role === r ? " selected" : "") + ">" + roleLabel(r) + "</option>"; }).join("") + "</select></label>" +
     '<label><input type="checkbox" name="inventoryManager"' + (m.inventoryManager ? " checked" : "") + "> Inventory manager (add-on — keeps member abilities, adds inventory)</label>" +
@@ -1088,8 +1166,10 @@ function memberFormHTML(m) {
 }
 function equipFormHTML(it) {
   it = it || { id: "", name: "", kind: "call-only" };
-  return "<h2>" + (it.id ? "Edit equipment" : "Add equipment") + "</h2><form id=\"equip-form\" data-id=\"" + it.id + "\">" +
-    '<label>Item name <input type="text" name="name" value="' + esc(it.name) + '" required></label>' +
+  // novalidate: see memberFormHTML — native `required` fails silently
+  // inside a <dialog> (submit never fires, no bubble shown).
+  return "<h2>" + (it.id ? "Edit equipment" : "Add equipment") + "</h2><form id=\"equip-form\" data-id=\"" + it.id + "\" novalidate>" +
+    '<label>Item name <input type="text" name="name" value="' + esc(it.name) + '"></label>' +
     '<label>Kind <select name="kind"><option value="call-only"' + (it.kind === "call-only" ? " selected" : "") + '>Call-only</option><option value="loan-only"' + (it.kind === "loan-only" ? " selected" : "") + '>Loan-only</option></select></label>' +
     '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
     '<div><button class="btn" type="submit">Save item</button> <button class="btn secondary" type="button" data-action="close-dialog">Cancel</button></div></form>';
@@ -1264,7 +1344,7 @@ document.addEventListener("click", function (e) {
     case "export-csv": {
       var rows = [["Incident", "Date closed", "Nature", "Address", "Outcome", "Responders"]];
       Store.state.calls.filter(function (x) { return x.status === "closed"; }).forEach(function (x) {
-        rows.push([x.incident, x.closedAt || "", x.nature, x.address, x.outcome || "", x.responders.map(function (rr) { var u = Store.user(rr.userId); return u ? u.name : ""; }).join("; ")]);
+        rows.push([x.incident, x.closedAt || "", x.nature, x.address, outcomeLabel(x.outcome), x.responders.map(function (rr) { var u = Store.user(rr.userId); return u ? u.name : ""; }).join("; ")]);
       });
       var csv = rows.map(function (row) { return row.map(function (v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(","); }).join("\n");
       download("dispatch-mvp-report.csv", csv, "text/csv"); toast("Report downloaded as CSV."); break;
@@ -1297,9 +1377,17 @@ document.addEventListener("submit", function (e) {
     };
     var exEl = $("#nc-exclude-addr");
     if (exEl && exEl.checked && data.address) Store.excludeAddress(data.address);
-    if (!data.nature || !data.address || !data.callerName) { toastErr("Call nature, address and caller name are required."); return; }
+    // Validation errors show inline in the form (this form lives on
+    // the main page, not in a dialog) and name exactly the fields
+    // that are missing — never the combined "nature, address and
+    // caller name are required" that blamed a filled-looking field.
+    var ncErr = document.querySelector("#nc-error");
+    var showNcErr = function (msg) { if (ncErr) { ncErr.textContent = msg; ncErr.hidden = false; } else toastErr(msg); };
+    var reqErr = callRequiredError(data);
+    if (reqErr) { showNcErr(reqErr); return; }
     var digits = data.callerPhone.replace(/\D/g, "");
-    if (digits.length < 7) { toastErr("Enter a valid callback number (at least 7 digits)."); return; }
+    if (digits.length < 7) { showNcErr("Enter a valid callback number (at least 7 digits)."); return; }
+    if (ncErr) ncErr.hidden = true;
     App.pendingCall = data; App.idemKey = uid("key");
     $("#nc-summary").innerHTML = newCallSummary(data);
     $("#nc-summary").scrollIntoView({ behavior: "smooth", block: "start" });

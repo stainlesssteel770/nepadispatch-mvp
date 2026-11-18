@@ -75,6 +75,7 @@ await sleep(200);
 // 2. Create a call with own data (dispatcher), summary step, put out
 await setRole("u-disp");
 await goTab("new");
+await page.select("#nc-nature", "Flat Tire"); // nature is a real choice now: placeholder means "not chosen"
 await page.type("#nc-address", "77 Test Ave, Kingston, PA");
 await page.type("#nc-vehicle", "Subaru Outback");
 await page.type("#nc-name", "Test Caller");
@@ -480,6 +481,7 @@ const ncLabel = await page.evaluate(() => { const l = document.querySelector('la
 check("3: callback number marked required", ncLabel.includes("*") && /required/i.test(ncLabel), ncLabel);
 
 // (4) Back to edit keeps the form filled
+await page.select("#nc-nature", "Flat Tire"); // placeholder means "not chosen" since rerun #4
 await page.type("#nc-address", "88 Prefill Rd, Kingston, PA");
 await page.type("#nc-vehicle", "Subaru Outback");
 await page.type("#nc-name", "Prefill Person");
@@ -770,6 +772,217 @@ await page.evaluate(() => {
 await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
 const oldShown = await page.evaluate(() => !document.querySelector("#alert-banner").hidden && document.querySelector("#alert-banner").innerText.includes("OLD ALERT"));
 check("15f: >24h-old new-call alert never renders in the banner", !oldShown);
+
+// 16. Rerun #4 fixes (Nov 17): nature placeholder, outcome labels,
+// silent-form audit, member privacy-request status
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+
+// (1) Nature shows an honest placeholder; Review fails honestly when
+// unset, passes once a nature is picked. Other selects genuinely
+// default (alert radios default to Normal in markup and in state).
+await setRole("u-disp");
+await goTab("new");
+const nat0 = await page.evaluate(() => {
+  const s = document.querySelector("#nc-nature");
+  return { value: s.value, text: s.options[s.selectedIndex].text, placeholder: [...s.options].some((o) => o.value === "" && /Choose a call nature/.test(o.text)) };
+});
+check("16-1: nature shows 'Choose a call nature…' placeholder, nothing pre-filled", nat0.value === "" && nat0.placeholder, JSON.stringify(nat0));
+await page.type("#nc-address", "55 Nature Rd, Kingston, PA");
+await page.type("#nc-name", "Nature Tester");
+await page.type("#nc-phone", "555-0161");
+await page.click('#new-call-form button[type="submit"]');
+await sleep(300);
+const natErr = await page.evaluate(() => { const e = document.querySelector("#nc-error"); return e && !e.hidden ? e.innerText : ""; });
+const noSummary = await page.evaluate(() => !document.body.innerText.includes("Review before confirming"));
+check("16-1: Review with no nature fails honestly with an inline error naming nature", /Call nature is required/.test(natErr) && noSummary, natErr);
+await page.select("#nc-nature", "Lockout");
+await page.click('#new-call-form button[type="submit"]');
+await sleep(300);
+check("16-1: picking a nature lets Review pass with the chosen nature", (await text()).includes("Review before confirming") && (await text()).includes("Lockout"));
+const radioOk = await page.evaluate(() => { const r = document.querySelector('#new-call-form input[name="alertKind"][value="normal"]'); return r && r.checked; });
+// (1b) the missing-fields error names exactly the missing fields
+await goTab("new");
+await page.type("#nc-address", "56 Only Rd, Kingston, PA");
+await page.click('#new-call-form button[type="submit"]');
+await sleep(300);
+const missErr = await page.evaluate(() => { const e = document.querySelector("#nc-error"); return e && !e.hidden ? e.innerText : ""; });
+check("16-1: missing-fields error names exactly the missing fields", /Call nature and Caller name are required/.test(missErr), missErr);
+check("16-1: alert radios genuinely default to Normal (display matches state)", radioOk);
+
+// (2) Outcome codes render with spaces everywhere (code stored unchanged)
+await setRole("u-m4");
+await goTab("calls");
+await openCard("INC-1043");
+await page.type("#eta", "10 min");
+await page.click('#respond-form button[type="submit"]');
+await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1043");
+await page.evaluate(() => { document.querySelector('#close-form input[value="NotCorrected"]').checked = true; });
+await page.click('#close-form button[type="submit"]');
+await sleep(400);
+const closedNC = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "closed" && c.outcome === "NotCorrected"; });
+check("16-2: call closed as NotCorrected (stored code unchanged)", closedNC);
+// .badge has text-transform:uppercase, so assert on textContent
+const badgeOk = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1043"));
+  const b = c ? c.querySelector(".badge.closed") : null;
+  return b ? { text: b.textContent, ok: b.textContent.includes("Not corrected") && !b.textContent.includes("NotCorrected") } : null;
+});
+check("16-2: closed card badge reads 'Not corrected' with spaces", badgeOk && badgeOk.ok, JSON.stringify(badgeOk));
+await openCard("INC-1043");
+const detOk = await page.evaluate(() => { const t = document.querySelector("#dlg-body").innerText; return t.includes("closed (Not corrected)") && !t.includes("NotCorrected"); });
+check("16-2: call detail status reads 'closed (Not corrected)'", detOk);
+await closeDlg();
+await setRole("u-m4");
+await goTab("history");
+const histOk = await page.evaluate(() => document.body.innerText.includes("Not corrected") && !document.body.innerText.includes("NotCorrected"));
+check("16-2: My history shows 'Not corrected'", histOk);
+await setRole("u-coord");
+await goTab("reports");
+const repOk2 = await page.evaluate(() => {
+  const cells = [...document.querySelectorAll('td[data-label="Outcome"]')];
+  return cells.some((x) => x.textContent === "Not corrected") && !cells.some((x) => /NotCorrected|OnTheWay|NeedsCoordinator/.test(x.textContent));
+});
+check("16-2: Reports outcome column reads 'Not corrected'", repOk2);
+// CSV: capture the download blob instead of relying on a file landing
+const csvOk = await page.evaluate(async () => {
+  const origCreate = URL.createObjectURL.bind(URL);
+  let captured = null;
+  URL.createObjectURL = (blob) => { captured = blob; return origCreate(blob); };
+  document.querySelector('[data-action="export-csv"]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  URL.createObjectURL = origCreate;
+  if (!captured) return { ok: false, why: "no blob captured" };
+  const csv = await captured.text();
+  return { ok: csv.includes("Not corrected") && !csv.includes("NotCorrected"), csv: csv.slice(0, 250) };
+});
+check("16-2: exported CSV uses the friendly outcome label", csvOk.ok, JSON.stringify(csvOk).slice(0, 300));
+
+// (3) Silent-form audit: empty-name submits must show an inline error
+// (native `required` used to block the submit event with no bubble
+// inside a <dialog>, so the dialog just sat there).
+await setRole("u-coord");
+await goTab("equipment");
+const eqBefore = await page.evaluate(() => DispatchStore.state.equipment.length);
+await clickAction("equip-add");
+await page.click('#equip-form button[type="submit"]');
+await sleep(300);
+const eqErr = await dlgErr();
+const eqUnchanged = await page.evaluate((n) => DispatchStore.state.equipment.length === n, eqBefore);
+check("16-3: Add equipment with empty name shows inline error, creates nothing, dialog stays open", /Item name is required/.test(eqErr) && eqUnchanged && await dlgIsOpen(), eqErr);
+await page.type('#equip-form input[name="name"]', "Probe Jack");
+await page.click('#equip-form button[type="submit"]');
+await sleep(300);
+check("16-3: equipment saves once a name is entered", await page.evaluate(() => DispatchStore.state.equipment.some((e) => e.name === "Probe Jack")));
+await goTab("manage");
+const memBefore = await page.evaluate(() => DispatchStore.state.users.length);
+await clickAction("member-add");
+await page.click('#member-form button[type="submit"]');
+await sleep(300);
+const memErr = await dlgErr();
+const memUnchanged = await page.evaluate((n) => DispatchStore.state.users.length === n, memBefore);
+check("16-3: Add member with empty name shows inline error, creates nothing", /Member name is required/.test(memErr) && memUnchanged && await dlgIsOpen(), memErr);
+await page.click('[data-action="close-dialog"]'); await sleep(200);
+await goTab("equipment");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("Jump starter pack")).querySelector('[data-action="equip-edit"]').click();
+});
+await sleep(300);
+await page.evaluate(() => { document.querySelector('#equip-form input[name="name"]').value = ""; });
+await page.click('#equip-form button[type="submit"]');
+await sleep(300);
+const editErr = await dlgErr();
+const nameKept = await page.evaluate(() => DispatchStore.item("e1").name === "Jump starter pack");
+check("16-3: Edit equipment with empty name shows inline error, keeps old name", /Item name is required/.test(editErr) && nameKept, editErr);
+await page.click('[data-action="close-dialog"]'); await sleep(200);
+await goTab("manage");
+await page.click('#nature-add-form button[type="submit"]');
+await sleep(300);
+const natToast = await page.evaluate(() => { const t = document.querySelector("#toast"); return !t.hidden ? t.innerText : ""; });
+check("16-3 (audit): Add nature with empty name shows an error toast, adds nothing", /Nature name is required/.test(natToast), natToast);
+
+// (4) Member privacy-request status: visible in the call detail and on
+// Home; no duplicate request while one is pending.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await setRole("u-m4");
+await goTab("calls");
+await openCard("INC-1039");
+await clickAction("request-hidden", { id: "c4" });
+await sleep(300);
+const reqToast = await page.evaluate(() => document.querySelector("#toast").innerText);
+check("16-4: member request sent on closed call", /Request sent/.test(reqToast), reqToast);
+await page.click('[data-action="close-dialog"]').catch(() => {}); await sleep(200);
+await openCard("INC-1039");
+const reqStatus = await page.evaluate(() => {
+  const body = document.querySelector("#dlg-body");
+  return {
+    hasStatus: /Your request/.test(body.innerText) && /Pending dispatcher approval/.test(body.innerText),
+    noDupButton: !body.querySelector('[data-action="request-hidden"]'),
+  };
+});
+check("16-4: pending request status shows in the call detail, no duplicate request button", reqStatus.hasStatus && reqStatus.noDupButton, JSON.stringify(reqStatus));
+await closeDlg();
+await goTab("home");
+const homeReq = await page.evaluate(() => ({
+  sec: document.body.innerText.includes("My privacy requests") && document.body.innerText.includes("INC-1039") && document.body.innerText.includes("Pending dispatcher approval"),
+  btn: !!document.querySelector('[data-action="open-call"][data-id="c4"]'),
+}));
+check("16-4: Home 'My privacy requests' lists the pending request with an Open-call link", homeReq.sec && homeReq.btn, JSON.stringify(homeReq));
+await page.evaluate(() => { document.querySelector('[data-action="open-call"][data-id="c4"]').click(); });
+await sleep(300);
+const linkOpens = await page.evaluate(() => document.querySelector("#dlg").open && document.querySelector("#dlg-body").innerText.includes("INC-1039"));
+check("16-4: Home request row opens its call", linkOpens);
+await closeDlg();
+await setRole("u-disp");
+await goTab("requests");
+await page.evaluate(() => { const s = document.querySelector("#view select[id^='dur-']"); if (s) s.value = "30"; });
+await page.evaluate(() => { document.querySelector('[data-action="approve-request"]').click(); });
+await sleep(300);
+await setRole("u-m4");
+await goTab("calls");
+await openCard("INC-1039");
+const apprStatus = await page.evaluate(() => {
+  const t = document.querySelector("#dlg-body").innerText;
+  return { approved: /Approved — you can see the caller until/.test(t), callerVisible: t.includes("555-0104"), noDup: !document.querySelector('#dlg-body [data-action="request-hidden"]') };
+});
+check("16-4: approved request shows expiry + caller visible, still no duplicate button", apprStatus.approved && apprStatus.callerVisible && apprStatus.noDup, JSON.stringify(apprStatus));
+await closeDlg();
+await goTab("home");
+const homeAppr = await page.evaluate(() => document.body.innerText.includes("My privacy requests") && /INC-1039/.test(document.body.innerText) && /Approved until/.test(document.body.innerText));
+check("16-4: Home lists the approved request with its expiry", homeAppr);
+// Deny path on INC-1038: Denied shows, request button returns.
+await goTab("calls");
+await openCard("INC-1038");
+await clickAction("request-hidden", { id: "c5" });
+await sleep(300);
+await page.click('[data-action="close-dialog"]').catch(() => {}); await sleep(200);
+await setRole("u-disp");
+await goTab("requests");
+await page.evaluate(() => { document.querySelector('[data-action="deny-request"]').click(); });
+await sleep(300);
+await setRole("u-m4");
+await goTab("calls");
+await openCard("INC-1038");
+const denyStatus = await page.evaluate(() => {
+  const body = document.querySelector("#dlg-body");
+  return {
+    denied: /Denied by a dispatcher/.test(body.innerText),
+    buttonBack: !!body.querySelector('[data-action="request-hidden"]'),
+  };
+});
+check("16-4: denied request shows Denied in the detail and the request button returns", denyStatus.denied && denyStatus.buttonBack, JSON.stringify(denyStatus));
+await closeDlg();
+await goTab("home");
+const homeDeny = await page.evaluate(() => document.body.innerText.includes("INC-1038") && /Denied by a dispatcher/.test(document.body.innerText));
+check("16-4: Home lists the denied request", homeDeny);
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 
