@@ -29,6 +29,24 @@ function toast(msg, ms, isErr) {
   toastTimer = setTimeout(function () { t.hidden = true; t.classList.remove("error"); }, ms || 3500);
 }
 function toastErr(msg) { toast(msg, 8000, true); }
+// Toast with a real action button (e.g. Undo after a one-tap Correct
+// close). The button is a real <button> inside the toast, not plain
+// text; tapping it runs the action. Tapping anywhere else does NOT
+// dismiss the toast before its window ends — only tapping the toast
+// itself or the timer does.
+function toastAction(msg, label, fn, ms) {
+  var t = $("#toast");
+  t.innerHTML = "";
+  var span = document.createElement("span");
+  span.textContent = msg;
+  var btn = document.createElement("button");
+  btn.type = "button"; btn.className = "toast-undo"; btn.textContent = label;
+  btn.addEventListener("click", function (ev) { ev.stopPropagation(); fn(); });
+  t.appendChild(span); t.appendChild(btn);
+  t.classList.remove("error"); t.hidden = false;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.hidden = true; }, ms || 8000);
+}
 // Error shown while a dialog is open: the dialog is a native <dialog>
 // (top layer — no z-index can put a toast above it), so the error
 // renders as an inline line inside the dialog instead. `scope` (a form
@@ -67,6 +85,7 @@ function freshSeed() {
   s.currentUserId = "u-disp";
   s.usedKeys = [];
   s.nextIncident = 1045;
+  s.dismissedAlerts = [];
   return s;
 }
 
@@ -78,6 +97,8 @@ var Store = {
       var raw = localStorage.getItem(LS_KEY);
       if (raw) {
         this.state = JSON.parse(raw);
+        // Normalise state saved before dismissedAlerts existed.
+        if (!Array.isArray(this.state.dismissedAlerts)) this.state.dismissedAlerts = [];
         // Repair persisted state: drop backup alerts whose call no
         // longer needs backup (e.g. cleared before this fix shipped).
         var self = this;
@@ -102,6 +123,7 @@ var Store = {
     s.calls = []; s.equipment = []; s.fleet = []; s.loans = [];
     s.savedAddresses = []; s.excludedAddresses = [];
     s.hiddenRequests = []; s.alerts = []; s.activityLog = [];
+    s.dismissedAlerts = [];
     s.usedKeys = []; s.nextIncident = 1001;
     s.callNatures = clone(window.DISPATCH_SEED.callNatures);
     this.save();
@@ -492,7 +514,7 @@ var Store = {
 };
 
 /* ---------------- UI ---------------- */
-var App = { tab: "home", pendingCall: null, idemKey: null, editingDraftId: null };
+var App = { tab: "home", pendingCall: null, idemKey: null, editingDraftId: null, bannerAlertIds: [] };
 
 function roleLabel(r) { return {"super-admin":"Super admin","coordinator":"Coordinator","dispatcher":"Dispatcher","member":"Member"}[r] || r; }
 function userName(id) { var u = Store.user(id); return u ? esc(u.name) : "—"; }
@@ -577,7 +599,11 @@ function callCard(c) {
     "</article>";
 }
 
-function tabsFor() {
+/* ----- navigation: app-first. Only 3–4 primary tabs per role, in a
+   single row; everything else lives in the hamburger side menu,
+   grouped. The role switcher is a demo/test control — it lives at
+   the bottom of the menu, not in the header. */
+function allTabs() {
   var me = Store.me();
   var tabs = [["home", "Home"], ["calls", "Calls"]];
   if (Store.can("create-call")) tabs.push(["new", "New call"]);
@@ -592,33 +618,86 @@ function tabsFor() {
   return tabs;
 }
 
+function primaryTabs() {
+  var me = Store.me();
+  if (me.role === "dispatcher" || me.role === "coordinator") return [["home", "Home"], ["calls", "Calls"], ["new", "New call"], ["requests", "Requests"]];
+  if (me.role === "super-admin") return [["home", "Home"], ["calls", "Calls"], ["manage", "Manage"]];
+  return [["home", "Home"], ["calls", "Calls"], ["contacts", "Contacts"]]; // member (incl. inventory-manager member)
+}
+
+function menuGroups() {
+  var prim = primaryTabs().map(function (t) { return t[0]; });
+  var rest = allTabs().filter(function (t) { return prim.indexOf(t[0]) === -1; });
+  var GROUP = { dashboard: "Activity", history: "Activity", reports: "Activity", equipment: "Equipment", contacts: "Directory", manage: "Directory", data: "Personal" };
+  var ORDER = ["Activity", "Equipment", "Directory", "Personal"];
+  var groups = {};
+  rest.forEach(function (t) { var g = GROUP[t[0]] || "More"; (groups[g] = groups[g] || []).push(t); });
+  return ORDER.filter(function (g) { return groups[g]; }).map(function (g) { return { heading: g, items: groups[g] }; });
+}
+
+function renderMenu() {
+  var b = $("#menu-body");
+  b.innerHTML = menuGroups().map(function (g) {
+    return '<div class="menu-group"><h3>' + esc(g.heading) + "</h3>" +
+      g.items.map(function (t) {
+        return '<button type="button" class="menu-item" data-action="tab" data-tab="' + t[0] + '"' + (App.tab === t[0] ? ' aria-current="true"' : "") + ">" + esc(t[1]) + "</button>";
+      }).join("") + "</div>";
+  }).join("");
+}
+
+function openMenu() {
+  renderMenu();
+  $("#menu").hidden = false; $("#menu-backdrop").hidden = false;
+  var b = document.querySelector('[data-action="menu-open"]');
+  if (b) b.setAttribute("aria-expanded", "true");
+}
+function closeMenu() {
+  $("#menu").hidden = true; $("#menu-backdrop").hidden = true;
+  var b = document.querySelector('[data-action="menu-open"]');
+  if (b) b.setAttribute("aria-expanded", "false");
+}
+
 function render() {
   var me = Store.me();
   var sel = $("#role-switch");
   sel.innerHTML = Store.state.users.map(function (u) {
     return '<option value="' + u.id + '"' + (u.id === me.id ? " selected" : "") + ">" + esc(u.name) + " — " + roleLabel(u.role) + (u.inventoryManager ? " + inventory" : "") + "</option>";
   }).join("");
-  var tabs = tabsFor();
-  if (!tabs.some(function (t) { return t[0] === App.tab; })) App.tab = "home";
+  var tabs = primaryTabs();
+  var all = allTabs();
+  if (!all.some(function (t) { return t[0] === App.tab; })) App.tab = "home";
   $("#tabs").innerHTML = tabs.map(function (t) {
-    return '<button data-action="tab" data-tab="' + t[0] + '"' + (App.tab === t[0] ? ' aria-current="true"' : "") + ">" + esc(t[1]) + "</button>";
+    return '<button data-action="tab" data-tab="' + t[0] + '"' + (App.tab === t[0] ? ' aria-current="true"' : "") + (t[0] === "new" ? ' class="tab-new"' : "") + ">" + esc(t[1]) + "</button>";
   }).join("");
+  renderMenu();
   // In-app alert banner (all org members except super admin).
   // The banner is derived from live state: a backup alert only shows
   // while its call is still open and still needs backup — a stale
   // backup alert never renders, even if one survives in storage.
+  // Two more rules (Instinct rerun): a "call" (new-call) alert older
+  // than 24 hours never renders, and the banner has a dismiss (×)
+  // that hides it — dismissed alert ids are persisted, so a reload
+  // does not resurrect them (the log/activity data is untouched).
+  // The banner shows the most recent live alert as one compact line
+  // (plus a "+N more" count); dismiss hides every live alert shown.
   var banner = $("#alert-banner");
-  if (me.role === "super-admin") { banner.hidden = true; }
+  var DAY = 24 * 3600 * 1000;
+  var dismissed = Store.state.dismissedAlerts || [];
+  if (me.role === "super-admin") { banner.hidden = true; App.bannerAlertIds = []; }
   else {
-    var recent = Store.state.alerts.filter(function (a) {
+    var visible = Store.state.alerts.filter(function (a) {
+      if (dismissed.indexOf(a.id) !== -1) return false;
+      if (a.kind === "call" && Date.now() - new Date(a.at).getTime() > DAY) return false;
       if (a.kind !== "backup") return true;
       var c = Store.call(a.callId);
       return c && c.status === "open" && c.backupNeeded;
-    }).slice(0, 2);
-    if (recent.length) {
+    });
+    App.bannerAlertIds = visible.map(function (a) { return a.id; });
+    if (visible.length) {
       banner.hidden = false;
-      banner.className = "alert-banner" + (recent.some(function (a) { return a.urgent; }) ? " urgent" : "");
-      banner.innerHTML = recent.map(function (a) { return "<div>" + esc(a.text) + "</div>"; }).join("");
+      banner.className = "alert-banner" + (visible.some(function (a) { return a.urgent; }) ? " urgent" : "");
+      banner.innerHTML = '<button type="button" class="banner-x" data-action="dismiss-banner" aria-label="Dismiss announcements">✕</button>' +
+        '<div class="banner-line">' + esc(visible[0].text) + (visible.length > 1 ? ' <span class="muted">+' + (visible.length - 1) + " more</span>" : "") + "</div>";
     } else banner.hidden = true;
   }
   var v = $("#view");
@@ -635,8 +714,7 @@ function viewHome() {
   var needMe = open.filter(function (c) { return !Store.isResponding(c, me.id); });
   var backup = open.filter(function (c) { return c.backupNeeded; });
   var h = "<h1>What needs my attention</h1>";
-  h += '<p class="muted">Signed in as <strong>' + esc(me.name) + "</strong> (" + roleLabel(me.role) + (me.inventoryManager ? " + inventory manager" : "") + "). " +
-    "This is a test prototype on your own device — <strong>do not enter real live-dispatch caller or member data</strong>; test data only.</p>";
+  h += '<p class="muted">Signed in as <strong>' + esc(me.name) + "</strong> (" + roleLabel(me.role) + (me.inventoryManager ? " + inventory manager" : "") + ").</p>";
   if (backup.length) h += '<div class="attention"><strong>Backup needed:</strong> ' + backup.map(function (c) { return esc(c.incident) + " — " + esc(c.nature); }).join("; ") + "</div>";
   if (mine.length) h += "<h2>My calls right now</h2>" + mine.map(callCard).join("");
   else h += "<p>You are not responding to any call right now.</p>";
@@ -895,8 +973,8 @@ function viewReports() {
   var closed = Store.state.calls.filter(function (c) { return c.status === "closed"; });
   var h = "<h1>Calls / incidents report</h1><p class=\"muted\">Coordinator and above only. Basic report in this version.</p>" +
     '<button class="btn" data-action="export-csv">Download CSV</button>' +
-    '<div class="table-scroll"><table><tr><th>Incident</th><th>Date</th><th>Nature</th><th>Address</th><th>Outcome</th><th>Responders</th></tr>' +
-    closed.map(function (c) { return "<tr><td>" + esc(c.incident) + "</td><td>" + fmtDT(c.closedAt) + "</td><td>" + esc(c.nature) + "</td><td>" + esc(c.address) + "</td><td>" + esc(c.outcome || "") + "</td><td>" + c.responders.map(function (r) { return userName(r.userId); }).join(", ") + "</td></tr>"; }).join("") + "</table></div>";
+    '<div class="table-scroll"><table class="stack-narrow"><thead><tr><th>Incident</th><th>Date</th><th>Nature</th><th>Address</th><th>Outcome</th><th>Responders</th></tr></thead><tbody>' +
+    closed.map(function (c) { return "<tr><td data-label=\"Incident\">" + esc(c.incident) + "</td><td data-label=\"Date\">" + fmtDT(c.closedAt) + "</td><td data-label=\"Nature\">" + esc(c.nature) + "</td><td data-label=\"Address\">" + esc(c.address) + "</td><td data-label=\"Outcome\">" + esc(c.outcome || "") + "</td><td data-label=\"Responders\">" + c.responders.map(function (r) { return userName(r.userId); }).join(", ") + "</td></tr>"; }).join("") + "</tbody></table></div>";
   return h;
 }
 
@@ -912,8 +990,8 @@ function viewRequests() {
       '<button class="btn" data-action="approve-request" data-id="' + r.id + '">Approve</button>' +
       '<button class="btn danger" data-action="deny-request" data-id="' + r.id + '">Deny</button></article>';
   }).join("") : "<p>No pending requests.</p>");
-  h += "<h2>Decided (log)</h2>" + (done.length ? '<div class="table-scroll"><table><tr><th>Who</th><th>Call</th><th>Fields</th><th>Status</th><th>Duration</th><th>Approved by</th><th>Expires</th></tr>' +
-    done.map(function (r) { var c = Store.call(r.callId); return "<tr><td>" + userName(r.requesterId) + "</td><td>" + esc(c ? c.incident : r.callId) + "</td><td>" + esc(r.fields.join(", ")) + "</td><td>" + esc(r.status) + "</td><td>" + (r.durationMinutes ? r.durationMinutes + " min" : (r.status === "approved" ? "forever" : "—")) + "</td><td>" + (r.approvedBy ? userName(r.approvedBy) : "—") + "</td><td>" + (r.expiresAt ? fmtDT(r.expiresAt) : "—") + "</td></tr>"; }).join("") + "</table></div>" : "<p>Nothing yet.</p>");
+  h += "<h2>Decided (log)</h2>" + (done.length ? '<div class="table-scroll"><table class="stack-narrow"><thead><tr><th>Who</th><th>Call</th><th>Fields</th><th>Status</th><th>Duration</th><th>Approved by</th><th>Expires</th></tr></thead><tbody>' +
+    done.map(function (r) { var c = Store.call(r.callId); return "<tr><td data-label=\"Who\">" + userName(r.requesterId) + "</td><td data-label=\"Call\">" + esc(c ? c.incident : r.callId) + "</td><td data-label=\"Fields\">" + esc(r.fields.join(", ")) + "</td><td data-label=\"Status\">" + esc(r.status) + "</td><td data-label=\"Duration\">" + (r.durationMinutes ? r.durationMinutes + " min" : (r.status === "approved" ? "forever" : "—")) + "</td><td data-label=\"Approved by\">" + (r.approvedBy ? userName(r.approvedBy) : "—") + "</td><td data-label=\"Expires\">" + (r.expiresAt ? fmtDT(r.expiresAt) : "—") + "</td></tr>"; }).join("") + "</tbody></table></div>" : "<p>Nothing yet.</p>");
   h += "<h2>Activity log</h2><ul>" + Store.state.activityLog.slice(0, 30).map(function (a) { return "<li>" + fmtDT(a.at) + " — " + esc(a.text) + "</li>"; }).join("") + "</ul>";
   return h;
 }
@@ -1035,7 +1113,18 @@ document.addEventListener("click", function (e) {
   // behaviour instead of opening the dialog.
   if (a === "open-call" && e.target.closest("a")) return;
   switch (a) {
+    case "menu-open": openMenu(); break;
+    case "menu-close": closeMenu(); break;
+    case "dismiss-banner": {
+      // Dismiss every live alert currently shown; the ids are
+      // persisted, so a reload does not resurrect them. The log and
+      // activity data are untouched.
+      Store.state.dismissedAlerts = Store.state.dismissedAlerts || [];
+      (App.bannerAlertIds || []).forEach(function (aid) { if (Store.state.dismissedAlerts.indexOf(aid) === -1) Store.state.dismissedAlerts.push(aid); });
+      Store.save(); render(); break;
+    }
     case "tab":
+      closeMenu();
       App.tab = el.dataset.tab;
       // A manual trip to New call starts a fresh form — it must not
       // silently keep editing a draft (edit-draft sets App.tab directly).
@@ -1076,7 +1165,21 @@ document.addEventListener("click", function (e) {
       if (confirm("Delete this draft call?")) { r = Store.deleteDraft(id); if (r.ok) toast("Draft deleted."); else toastErr(r.error); closeDialog(); render(); }
       break;
     case "reopen": r = Store.reopenCall(id); if (r.ok) { toast("Call reopened — responses, assignments and equipment stay as they were."); closeDialog(); } else showError(r.error); render(); break;
-    case "correct-call": r = Store.closeCorrect(id); if (r.ok) toast("Call closed as Corrected."); else showError(r.error); render(); break;
+    case "correct-call": {
+      // One-tap close stays one-tap (owner decision) — but the
+      // confirmation toast now carries an Undo button for ~8s. Undo
+      // reopens the call, restoring responses, assignments and
+      // equipment as they were (the existing reopen path).
+      r = Store.closeCorrect(id);
+      if (r.ok) {
+        toastAction("Call closed as Corrected.", "Undo", function () {
+          var rr = Store.reopenCall(id);
+          if (rr.ok) { render(); toast("Call reopened — it is open again."); }
+          else { toastErr(rr.error); render(); }
+        }, 8000);
+      } else showError(r.error);
+      render(); break;
+    }
     case "request-callback": r = Store.requestHidden(id, ["phone"]); if (r.ok) toast("Request sent — a dispatcher must approve it."); else showError(r.error); break;
     case "request-hidden": r = Store.requestHidden(id, ["name", "phone"]); if (r.ok) toast("Request sent — a dispatcher must approve it."); else showError(r.error); break;
     case "approve-request": {
@@ -1169,8 +1272,10 @@ document.addEventListener("click", function (e) {
   }
 });
 
-/* Keyboard: Enter/Space on a focused call card opens it, like a tap. */
+/* Keyboard: Enter/Space on a focused call card opens it, like a tap.
+   Escape closes the side menu. */
 document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape") { var m = $("#menu"); if (m && !m.hidden) closeMenu(); return; }
   if ((e.key !== "Enter" && e.key !== " ") || !e.target.classList || !e.target.classList.contains("call-card")) return;
   e.preventDefault();
   var c = Store.call(e.target.dataset.id);
@@ -1270,8 +1375,10 @@ document.addEventListener("click", function (e) {
 });
 
 /* ----- init ----- */
-// Tapping a toast dismisses it (error toasts otherwise linger 8s).
-$("#toast").addEventListener("click", function () { this.hidden = true; this.classList.remove("error"); if (toastTimer) clearTimeout(toastTimer); });
+// The toast body is click-through (pointer-events: none in CSS) so a
+// transient toast never swallows a tap meant for a button underneath
+// it; only the Undo button inside a toast is tappable. Toasts hide
+// on their timer (3.5s, 8s for errors).
 $("#role-switch").addEventListener("change", function (e) {
   Store.state.currentUserId = e.target.value; Store.save(); render();
 });

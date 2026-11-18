@@ -25,6 +25,17 @@ const clickAction = async (action, extra = {}) => {
   await page.click(`[data-action="${action}"]${sel}`);
   await sleep(300);
 };
+// Navigate to a tab whether it is a primary tab or lives in the
+// hamburger menu: primary first, otherwise open the menu and click
+// the menu item (a hidden menu item cannot be clicked directly).
+const goTab = async (tab) => {
+  const inPrimary = await page.evaluate((t) => !!document.querySelector('#tabs [data-tab="' + t + '"]'), tab);
+  if (inPrimary) { await clickAction("tab", { tab }); return; }
+  await page.click('[data-action="menu-open"]');
+  await sleep(200);
+  await page.click('#menu [data-action="tab"][data-tab="' + tab + '"]');
+  await sleep(300);
+};
 
 let t = await text();
 check("home renders with seeded open call", t.includes("INC-1042") && t.includes("What needs my attention"));
@@ -63,7 +74,7 @@ await sleep(200);
 
 // 2. Create a call with own data (dispatcher), summary step, put out
 await setRole("u-disp");
-await clickAction("tab", { tab: "new" });
+await goTab("new");
 await page.type("#nc-address", "77 Test Ave, Kingston, PA");
 await page.type("#nc-vehicle", "Subaru Outback");
 await page.type("#nc-name", "Test Caller");
@@ -87,7 +98,7 @@ const dup = await page.evaluate(() => {
 check("duplicate submit returns existing record", dup.dup && dup.sameId && dup.after === dup.before + 1, JSON.stringify(dup));
 
 // 4. Close blocked while equipment out, then return + close
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   cards.find((c) => c.innerText.includes("INC-1042")).querySelector(".card-addr").click();
@@ -100,14 +111,14 @@ await sleep(300);
 t = await page.evaluate(() => { const e = document.querySelector("#dlg #dlg-error"); return e ? e.innerText : ""; });
 check("close blocked while equipment out (inline dialog error)", /Equipment must be returned/.test(t), t);
 await page.click('[data-action="close-dialog"]');
-await clickAction("tab", { tab: "equipment" });
+await goTab("equipment");
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const jack = cards.find((c) => c.innerText.includes("Hydraulic jack"));
   jack.querySelector('[data-action="return-equipment"]').click();
 });
 await sleep(300);
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   cards.find((c) => c.innerText.includes("INC-1042")).querySelector(".card-addr").click();
@@ -164,7 +175,7 @@ t = await page.evaluate(() => document.querySelector("#toast").innerText);
 check("hidden-data request sent", /Request sent/.test(t), t);
 await page.click('[data-action="close-dialog"]').catch(() => {});
 await setRole("u-disp");
-await clickAction("tab", { tab: "requests" });
+await goTab("requests");
 await page.select("#dur-r2", "30").catch(async () => {
   // request id is dynamic; find the pending select
   await page.evaluate(() => { const s = document.querySelector("#view select[id^='dur-']"); if (s) s.value = "30"; });
@@ -174,7 +185,7 @@ await sleep(300);
 await setRole("u-m4");
 const grantOk = await page.evaluate(() => !!DispatchStore.activeGrant("c4", "u-m4"));
 check("approved grant active for member (30 min)", grantOk);
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const c = cards.find((x) => x.innerText.includes("INC-1039"));
@@ -187,7 +198,7 @@ await page.click('[data-action="close-dialog"]').catch(() => {});
 
 // 8. Manage: add member, nature, address, vehicle, equipment
 await setRole("u-coord");
-await clickAction("tab", { tab: "manage" });
+await goTab("manage");
 await page.evaluate(() => { document.querySelector("#nature-new").value = "Winch Out"; });
 await page.click('#nature-add-form button[type="submit"]');
 await sleep(200);
@@ -199,7 +210,7 @@ await page.click('#fleet-add-form button[type="submit"]');
 await sleep(200);
 const manageOk = await page.evaluate(() => DispatchStore.state.callNatures.includes("Winch Out") && DispatchStore.state.savedAddresses.includes("9 New Rd, Kingston, PA") && DispatchStore.state.fleet.some((v) => v.name === "Test Van"));
 check("manage: nature + address + vehicle added", manageOk);
-await clickAction("tab", { tab: "equipment" });
+await goTab("equipment");
 await clickAction("equip-add");
 await page.type('#equip-form input[name="name"]', "Test Jack");
 await page.click('#equip-form button[type="submit"]');
@@ -210,13 +221,13 @@ check("manage: equipment item added by coordinator", equipOk);
 // 9. Data: export JSON valid, clear my data, reset to seed
 const expOk = await page.evaluate(() => { try { const d = JSON.parse(DispatchStore.exportJSON()); return Array.isArray(d.calls) && Array.isArray(d.users); } catch (e) { return false; } });
 check("export JSON parses with calls+users", expOk);
-await clickAction("tab", { tab: "data" });
+await goTab("data");
 await page.evaluate(() => { window.confirm = () => true; });
 await clickAction("data-clear");
 await sleep(300);
 const cleared = await page.evaluate(() => DispatchStore.state.calls.length === 0 && DispatchStore.state.equipment.length === 0);
 check("clear all my data empties calls+equipment", cleared);
-await clickAction("tab", { tab: "data" });
+await goTab("data");
 await clickAction("data-reset");
 await sleep(300);
 const resetOk = await page.evaluate(() => DispatchStore.state.calls.length === 5 && DispatchStore.state.equipment.length === 6);
@@ -232,7 +243,7 @@ check("state persists across reload", persistOk);
 // equipment out, c2 open with nothing out; signed in as dispatcher)
 // (a) open call with no equipment out -> closed as Corrected, one tap
 await setRole("u-disp");
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 const correctVisible = await page.evaluate(() => [...document.querySelectorAll('[data-action="correct-call"]')].length);
 check("Correct button shown to dispatcher on open calls", correctVisible === 2, "count=" + correctVisible);
 await page.evaluate(() => {
@@ -264,7 +275,7 @@ await page.evaluate(() => { DispatchStore.resetToSeed(); });
 await page.reload({ waitUntil: "networkidle0" });
 await sleep(400);
 await setRole("u-disp");
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 // (a) tapping the card body (address) opens the detail dialog
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
@@ -323,7 +334,7 @@ check("Add member hidden for members", addHidden === 0, "count=" + addHidden);
 // (link taps never open the dialog) is still exercised: preventDefault
 // does not stop propagation, so the document click handler still runs.
 await setRole("u-disp");
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const link = cards.find((c) => c.innerText.includes("INC-1043")).querySelector('.card-row a[href^="tel:"]');
@@ -351,7 +362,7 @@ const closeDlg = async () => { await page.click('[data-action="close-dialog"]').
 
 // (1a/10) Respond: empty ETA, then "banana", then a plain number
 await setRole("u-m4");
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await openCard("INC-1043");
 await page.click('#respond-form button[type="submit"]');
 await sleep(300);
@@ -397,7 +408,7 @@ await page.click('#loan-form button[type="submit"]');
 await sleep(400);
 const loanCreated = await page.evaluate(() => DispatchStore.state.loans.some((l) => l.borrower === "Test Borrower" && l.status === "created"));
 check("loan created once checkbox ticked", loanCreated);
-await clickAction("tab", { tab: "equipment" });
+await goTab("equipment");
 const loanBtns = async () => await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const card = cards.find((c) => c.innerText.includes("Loan — Test Loan Item"));
@@ -411,7 +422,7 @@ lb = await loanBtns();
 check("15: released loan shows only the next action (Mark picked up)", lb.length === 1 && lb[0] === "Mark picked up", JSON.stringify(lb));
 
 // (2) Close form: no pre-select, friendly labels, no-outcome error, then close
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await openCard("INC-1043");
 const closeInfo = await page.evaluate(() => {
   const f = document.querySelector("#close-form");
@@ -447,7 +458,7 @@ check("5: banner stays clean after a full reload", !/BACKUP NEEDED/.test(banner)
 await closeDlg();
 
 // (6) Unassign needs a confirm tap
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await openCard("INC-1042");
 await page.evaluate(() => { document.querySelector('#dlg-body [data-action="unassign"][data-user="u-m1"]').click(); });
 await sleep(300);
@@ -464,7 +475,7 @@ check("6: second tap removes the responder", unGone);
 await closeDlg();
 
 // (3) Callback number marked required
-await clickAction("tab", { tab: "new" });
+await goTab("new");
 const ncLabel = await page.evaluate(() => { const l = document.querySelector('label[for="nc-phone"]'); return l ? l.innerText : ""; });
 check("3: callback number marked required", ncLabel.includes("*") && /required/i.test(ncLabel), ncLabel);
 
@@ -488,7 +499,7 @@ const prefilled = await page.evaluate(() => ({
 check("4: Back to edit keeps every field filled", prefilled.address === "88 Prefill Rd, Kingston, PA" && prefilled.name === "Prefill Person" && prefilled.phone === "555-0188" && prefilled.notes === "Prefill notes", JSON.stringify(prefilled));
 
 // (7) Drafts can be edited in place
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await openCard("INC-1044");
 const editBtn = await page.evaluate(() => !!document.querySelector('#dlg-body [data-action="edit-draft"]'));
 check("7: draft detail has an Edit draft button", editBtn);
@@ -515,7 +526,7 @@ check("7: saving the edit updates the same draft, no duplicate", draftOk);
 
 // (8) Member phone validated like the callback number
 await setRole("u-coord");
-await clickAction("tab", { tab: "manage" });
+await goTab("manage");
 await clickAction("member-add");
 await page.type('#member-form input[name="name"]', "Test Member");
 await page.type('#member-form input[name="phone"]', "123");
@@ -531,22 +542,35 @@ await sleep(400);
 const memberOk = await page.evaluate(() => DispatchStore.state.users.some((u) => u.name === "Test Member" && u.phone === "555-0123"));
 check("8: member saved with a valid phone", memberOk);
 
-// (9) Decided log fits a phone screen
+// (9) Decided log fits a phone screen — the table stacks into
+// labelled cards at 390px, so no column is cut off and the page does
+// not overflow (the old .table-scroll wrapper only hid the overflow
+// behind an inner horizontal scroll: the table measured 545px inside
+// a 366px wrapper).
 await setRole("u-disp");
-await clickAction("tab", { tab: "requests" });
-const decided = await page.evaluate(() => ({
-  wrap: !!document.querySelector("#view .table-scroll"),
-  pageOverflow: document.documentElement.scrollWidth,
-}));
-check("9: Decided log sits in a scroll container, page does not overflow", decided.wrap && decided.pageOverflow <= 391, JSON.stringify(decided));
+await goTab("requests");
+const decided = await page.evaluate(() => {
+  const wrap = document.querySelector("#view .table-scroll");
+  const table = wrap ? wrap.querySelector("table") : null;
+  const firstTd = table ? table.querySelector("td") : null;
+  return {
+    wrap: !!wrap,
+    pageOverflow: document.documentElement.scrollWidth,
+    tableW: table ? table.offsetWidth : null,
+    tableScrollW: table ? table.scrollWidth : null,
+    stacked: firstTd ? getComputedStyle(firstTd).display === "block" : false,
+    labelled: firstTd ? !!firstTd.getAttribute("data-label") : false,
+  };
+});
+check("9: Decided log stacks into labelled cards, fits 390px, no page overflow", decided.wrap && decided.pageOverflow <= 391 && decided.tableScrollW <= 366 && decided.stacked && decided.labelled, JSON.stringify(decided));
 
 // (11) Contacts numbers are tap-to-call
-await clickAction("tab", { tab: "contacts" });
+await goTab("contacts");
 const telCount = await page.evaluate(() => [...document.querySelectorAll('#view a[href^="tel:"]')].length);
 check("11: Contacts numbers are tap-to-call links", telCount >= 7, "tel links=" + telCount);
 
 // (13) Dismiss button reads Cancel, not Close
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await openCard("INC-1042");
 const dismissText = await page.evaluate(() => { const b = document.querySelector('#dlg-body [data-action="close-dialog"]'); return b ? b.innerText.trim() : ""; });
 check("13: call dialog dismiss button reads Cancel, not Close", dismissText === "Cancel", dismissText);
@@ -554,7 +578,7 @@ await closeDlg();
 
 // (14) Error toasts outlast the old ~3s lifetime
 await setRole("u-coord");
-await clickAction("tab", { tab: "manage" });
+await goTab("manage");
 await page.evaluate(() => { document.querySelector("#nature-new").value = "Flat Tire"; });
 await page.click('#nature-add-form button[type="submit"]');
 await sleep(4500);
@@ -563,7 +587,7 @@ check("14: error toast still visible after 4.5s (was ~3s)", toastStill);
 
 // No-change items: member cannot un-respond; super admin stays admin-only
 await setRole("u-m4");
-await clickAction("tab", { tab: "calls" });
+await goTab("calls");
 await openCard("INC-1042");
 t = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
 const noUnrespond = await page.evaluate(() => !document.querySelector('#dlg-body [data-action="unrespond"]'));
@@ -589,7 +613,7 @@ const plain = await page.evaluate(() => {
 // Scroll to top before tab clicks: after a reload Chrome restores the
 // old scroll position, and the sticky header then covers the tab
 // buttons — a CDP click lands on the header, not the tab.
-const gotoCallsTab = async () => { await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100); await clickAction("tab", { tab: "calls" }); };
+const gotoCallsTab = async () => { await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100); await goTab("calls"); };
 await gotoCallsTab();
 const cardInfo = async (inc) => await page.evaluate((i) => {
   const cards = [...document.querySelectorAll(".card")];
@@ -624,6 +648,128 @@ ci = await cardInfo("INC-1044");
 check("14e: draft card keeps the plain treatment, no state class", ci && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
 ci = await cardInfo("INC-1039");
 check("14e: closed card keeps the plain treatment, no state class", ci && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
+
+// 15. Navigation + Undo + banner (Instinct rerun, Nov 17 evening)
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await setRole("u-disp");
+
+// (15a) Primary tabs per role: 3–4 labels, one row, no wrapping
+const primDisp = await page.evaluate(() => {
+  const btns = [...document.querySelectorAll("#tabs button")];
+  const first = btns[0].getBoundingClientRect();
+  return {
+    labels: btns.map((b) => b.innerText),
+    singleRow: btns.every((b) => { const r = b.getBoundingClientRect(); return Math.abs(r.top - first.top) < 2 && Math.abs(r.bottom - first.bottom) < 2; }),
+    newCallProminent: !!document.querySelector('#tabs button.tab-new[data-tab="new"]'),
+  };
+});
+check("15a: dispatcher primaries are Home, Calls, New call, Requests in one row, New call prominent", primDisp.labels.join("|") === "Home|Calls|New call|Requests" && primDisp.singleRow && primDisp.newCallProminent, JSON.stringify(primDisp));
+await setRole("u-m4");
+const primMem = await page.evaluate(() => [...document.querySelectorAll("#tabs button")].map((b) => b.innerText).join("|"));
+check("15a: member primaries are Home, Calls, Contacts", primMem === "Home|Calls|Contacts", primMem);
+await setRole("u-super");
+const primSup = await page.evaluate(() => [...document.querySelectorAll("#tabs button")].map((b) => b.innerText).join("|"));
+check("15a: super admin primaries are Home, Calls, Manage", primSup === "Home|Calls|Manage", primSup);
+await setRole("u-disp");
+
+// (15b) Hamburger opens; every moved screen listed + reachable; closes
+await page.click('[data-action="menu-open"]'); await sleep(300);
+const menuInfo = await page.evaluate(() => ({
+  open: !document.querySelector("#menu").hidden,
+  items: [...document.querySelectorAll("#menu [data-action='tab']")].map((b) => b.dataset.tab),
+  groups: [...document.querySelectorAll("#menu .menu-group h3")].map((h) => h.innerText),
+  hasRoleSwitch: !!document.querySelector("#menu #role-switch"),
+  hasReset: !!document.querySelector("#menu #reset-demo"),
+}));
+const groupsOk = ["Activity", "Equipment", "Directory", "Personal"].every((g) => menuInfo.groups.map((x) => x.toLowerCase()).includes(g.toLowerCase()));
+check("15b: hamburger opens grouped menu with moved screens + role switch + reset", menuInfo.open && ["equipment", "dashboard", "history", "contacts", "data"].every((t) => menuInfo.items.includes(t)) && groupsOk && menuInfo.hasRoleSwitch && menuInfo.hasReset, JSON.stringify(menuInfo));
+await page.click('#menu [data-action="tab"][data-tab="equipment"]'); await sleep(300);
+const menuNav = await page.evaluate(() => document.querySelector("#menu").hidden && document.querySelector("#view h1").innerText === "Equipment");
+check("15b: menu tab navigates and closes the menu", menuNav);
+await page.click('[data-action="menu-open"]'); await sleep(200);
+await page.keyboard.press("Escape"); await sleep(200);
+const escClosed = await page.evaluate(() => document.querySelector("#menu").hidden);
+check("15b: Escape closes the menu", escClosed);
+// role switcher still works from inside the menu (hidden select)
+await page.click('[data-action="menu-open"]'); await sleep(200);
+await setRole("u-m4");
+const roleInMenu = await page.evaluate(() => document.querySelector("#menu #role-switch").value === "u-m4" && document.querySelector("#menu").hidden === false);
+check("15b: role switcher works from inside the menu", roleInMenu);
+await page.click('#menu [data-action="menu-close"]'); await sleep(200);
+await setRole("u-disp");
+
+// (15c) First call card visible within the first screen at 390x844
+await goTab("home");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(200);
+const firstTop = await page.evaluate(() => { const c = document.querySelector(".call-card"); return c ? Math.round(c.getBoundingClientRect().top) : null; });
+check("15c: first call card top is within the first screen (<500px)", firstTop !== null && firstTop < 500, "firstCardTop=" + firstTop);
+
+// (15d) One-tap Correct shows a real Undo button; Undo restores the call
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+const undoInfo = await page.evaluate(() => {
+  const tEl = document.querySelector("#toast");
+  const c = DispatchStore.call("c2");
+  return { toastHidden: tEl.hidden, hasUndo: !!tEl.querySelector(".toast-undo"), closed: c.status === "closed" && c.outcome === "Corrected" };
+});
+check("15d: one-tap Correct closes call and shows a real Undo button", !undoInfo.toastHidden && undoInfo.hasUndo && undoInfo.closed, JSON.stringify(undoInfo));
+await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
+await sleep(400);
+const undone = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "open" && c.outcome === null; });
+check("15d: Undo reopens the call (open, outcome cleared)", undone);
+// Undo toast survives a tap elsewhere (no auto-dismiss on outside tap)
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { document.querySelector("h1").click(); });
+await sleep(200);
+const undoSurvives = await page.evaluate(() => { const tEl = document.querySelector("#toast"); return !tEl.hidden && !!tEl.querySelector(".toast-undo"); });
+check("15d: Undo toast survives a tap elsewhere before its window ends", undoSurvives);
+await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
+await sleep(400);
+
+// (15e) Decided + Reports tables fit 390px (stacked, no overflow)
+await goTab("requests");
+const tablesOk = await page.evaluate(() => {
+  const out = { pageOverflow: document.documentElement.scrollWidth };
+  document.querySelectorAll(".table-scroll table").forEach((t, i) => { out["t" + i] = { offsetW: t.offsetWidth, scrollW: t.scrollWidth }; });
+  return out;
+});
+check("15e: Decided table fits its container, no page overflow", tablesOk.pageOverflow <= 391 && Object.keys(tablesOk).filter((k) => k[0] === "t").every((k) => tablesOk[k].scrollW <= 366), JSON.stringify(tablesOk));
+await setRole("u-coord");
+await goTab("reports");
+const repOk = await page.evaluate(() => {
+  const t = document.querySelector(".table-scroll table");
+  return { pageOverflow: document.documentElement.scrollWidth, scrollW: t ? t.scrollWidth : null, offsetW: t ? t.offsetWidth : null };
+});
+check("15e: Reports table fits 390px too", repOk.pageOverflow <= 391 && repOk.scrollW <= 366, JSON.stringify(repOk));
+
+// (15f) Banner dismiss persists across reload; >24h-old call alert never renders
+await setRole("u-disp");
+await goTab("home");
+const bannerBefore = await page.evaluate(() => ({ hidden: document.querySelector("#alert-banner").hidden, text: document.querySelector("#alert-banner").innerText }));
+check("15f: banner shows the seeded new-call alerts before dismiss", !bannerBefore.hidden && /INC-1042/.test(bannerBefore.text), bannerBefore.text);
+await page.click('[data-action="dismiss-banner"]'); await sleep(300);
+const afterDismiss = await page.evaluate(() => document.querySelector("#alert-banner").hidden);
+check("15f: dismiss hides the banner", afterDismiss);
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+const stillHidden = await page.evaluate(() => document.querySelector("#alert-banner").hidden);
+check("15f: dismissed banner stays hidden after reload", stillHidden);
+await page.evaluate(() => {
+  DispatchStore.state.alerts.unshift({ id: "a-old", callId: "c1", kind: "call", urgent: false, text: "OLD ALERT SHOULD NOT SHOW INC-1042", at: new Date(Date.now() - 25 * 3600 * 1000).toISOString() });
+  DispatchStore.save();
+});
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+const oldShown = await page.evaluate(() => !document.querySelector("#alert-banner").hidden && document.querySelector("#alert-banner").innerText.includes("OLD ALERT"));
+check("15f: >24h-old new-call alert never renders in the banner", !oldShown);
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 

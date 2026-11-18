@@ -14,7 +14,9 @@ Card-tap fix 2026-11-17 (same day): the whole call card is now tappable, and the
 
 Instinct findings batch 2026-11-17 (same day): 15 fixes from Instinct's phone-width test of the live v2 prototype (full matrix at https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings). PUSHED 2026-11-17 (commit da2e3419) and live-verified — live app.js and styles.css byte-match local (md5), `parseETA` present. See "Instinct findings batch — 2026-11-17" below.
 
-Card colors 2026-11-17 (same day, not yet pushed — parent pushes after verifying): the owner's decision on the open question — urgent stays visually urgent, but the card also shows others are responding. Rule for open calls: neutral (white) when uncovered and not urgent, red when urgent and uncovered, blue when covered and not urgent, red + blue COVERED badge + blue responder pills when urgent and covered (urgent wins). See "Card colors — 2026-11-17" below.
+Card colors 2026-11-17 (same day): the owner's decision on the open question — urgent stays visually urgent, but the card also shows others are responding. Rule for open calls: neutral (white) when uncovered and not urgent, red when urgent and uncovered, blue when covered and not urgent, red + blue COVERED badge + blue responder pills when urgent and covered (urgent wins). PUSHED 2026-11-17 (commit 156405fa) and live-verified — live app.js and styles.css byte-match local (md5). See "Card colors — 2026-11-17" below.
+
+Navigation + undo + banner 2026-11-17 (same day, evening): Instinct's rerun of the live v=20261117-colors prototype (phone-size desktop Chrome, fake data only) re-verified all previous fixes and raised four new items — app-first navigation (first screen was ~480/844px of chrome), one-tap Correct with no undo, the Decided table still 585px wide, and announcement entries that never aged out. NOT YET PUSHED — parent pushes after verifying. See "Navigation + undo + banner — 2026-11-17" below.
 
 ## Architecture
 
@@ -132,6 +134,8 @@ build time.
 
 **Added 2026-11-17 (Instinct findings batch, item 12 — judgment call, reversible on the owner's word):** after a call closes, NOBODY sees the caller name+phone without an unexpired dispatcher-approved grant — including past responders. This follows the decided rule that caller data is requestable post-close via a grant; the prototype previously let a past responder keep seeing the caller on a closed call. Dispatcher/coordinator access is unchanged. If the owner wants past responders to keep seeing it, this is a one-line change in `Store.canSeeCaller`.
 
+**Added 2026-11-17 (owner clarification, Instinct rerun):** ETAs are not really ever adjusted — whatever is put in is what goes. So NO ETA-editing feature is needed at all (neither member nor dispatcher editing). Member un-respond stays dispatcher-only, as decided. The rerun's "member can't un-respond/correct ETA" item is therefore fully settled, not open.
+
 **Added 2026-11-17 (owner requirement):** fake seed data stays the
 starting point, but the owner can also input his own data and test
 the full call cycle with it. Everything seeded is addable, editable,
@@ -169,10 +173,11 @@ localStorage, with “Reset to fake seed data”, “Clear all my data”
 ## What was tested
 
 Smoke suite `tests/smoke.mjs`, headless Chrome (puppeteer-core),
-390×844 mobile viewport, served over local HTTP. **74/74 passed**
-on 2026-11-17 after the card-colors change (was 67/67 after the
-Instinct findings batch, 36/36 after the
-card-tap fix, 28/28 after the polish pass, 23/23 before it): home render + warning; role switcher; caller hidden for a non-responding
+390×844 mobile viewport, served over local HTTP. **91/91 passed**
+on 2026-11-17 after the navigation + undo + banner change (was
+74/74 after the card-colors change, 67/67 after the Instinct
+findings batch, 36/36 after the card-tap fix, 28/28 after the polish
+pass, 23/23 before it): home render + warning; role switcher; caller hidden for a non-responding
 member; caller visible with tap-to-call after responding; new call
 with own data through the summary step; duplicate submit returns the
 existing record; close blocked while equipment is out, then succeeds
@@ -474,6 +479,144 @@ toast-UNDO/tab-bar tap-interception lessons). Section 14 scrolls to
 the top (`window.scrollTo(0, 0)`) before tab clicks. This is a test
 harness artifact, not an app bug: a real user scrolls the tabs back
 into view before tapping.
+
+## Navigation + undo + banner — 2026-11-17 (NOT YET PUSHED)
+
+Instinct's rerun (fresh on v=20261117-colors, phone-size desktop
+Chrome, fake data only; matrix at
+https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings)
+re-verified all previous fixes and raised four new items, all fixed
+here. Card colors unchanged (urgent wins — already decided by the
+owner). Asset version bumped to `?v=20261117-nav`.
+
+### 1. App-first navigation
+
+Before: first call card top 781px (header 162px, tabs 160px wrapping
+3 rows, banner 122px with two alerts) — ~480/844px of chrome before
+any call. After (measured in the smoke run, 390×844): header 65px,
+warn strip 61px, tabs 60px, banner 45px (one line), **first card top
+420px**.
+
+- Compact header: one slim row — brand + hamburger button. The role
+  switcher moved OUT of the header into the side menu (it is a
+  test/demo control, not a daily control). The "PROTOTYPE — FAKE
+  DATA ONLY" tag stays visible but small. (Probe catch: the tag's
+  min-content width of 198px overflowed the one-row header and pushed
+  the page to 402px wide; removing `white-space: nowrap` from `.tag`
+  lets it wrap — page back to 390px.)
+- Primary tabs, 3–4 per role, one non-wrapping row at 390px
+  (`primaryTabs()` in `app.js`): Member — Home, Calls, Contacts;
+  Dispatcher — Home, Calls, New call, Requests; Coordinator — Home,
+  Calls, New call, Requests; Super admin — Home, Calls, Manage.
+  Inventory-manager members keep the member primaries; their Manage
+  access lives in the menu. New call is prominent for
+  dispatchers/coordinators (filled green `.tab-new` style).
+- Hamburger side menu: slide-in drawer from the left with a close
+  button, a backdrop tap to close, and Escape to close
+  (`openMenu()`/`closeMenu()`). Everything else grouped with small
+  headings — Activity (Dashboard, My history, Reports where the
+  role has it), Equipment (Equipment), Directory (Contacts where not
+  already a primary, Manage where the role has it), Personal (My
+  data) — plus the role switcher ("Signed in as" select) and Reset
+  demo data at the bottom. Nothing deleted, only moved; menu tab
+  clicks use the same `App.tab` + render path as the primary tabs.
+- Announcement strip: only renders when a live alert exists, one
+  compact line (ellipsis + "+N more" count) with a dismiss (×)
+  button (see §4).
+- Home's "What needs my attention" / "My calls right now" sections
+  unchanged.
+
+### 2. One-tap Correct undo window
+
+One-tap Correct stays one-tap (owner's explicit one-click ask), but
+after a Correct close the confirmation toast now carries a real
+"Undo" button for ~8s (`toastAction()`, `closeCorrect` passes
+`undo: "correct-call"` with the call id). Tapping Undo reopens the
+call via the existing reopen path (responses/assignments/equipment
+restored as they were). The toast does NOT disappear on the first
+tap elsewhere before the window ends — `toast()` only auto-hides a
+toast when it has no action, and the undo toast is on its own
+8-second timer. The Undo button is a real `<button>` in the toast
+(`.toast-undo`), not plain toast text. The full 7-outcome close
+dialogue is unchanged (choice + confirm step, no undo needed there).
+
+Related fix found while running the suite: the toast body itself
+used to swallow taps — after data-clear, the "All your data cleared"
+toast sat over the Reset button's center and the test's reset click
+landed on the toast (confirmed with `elementFromPoint`). The toast
+body is now click-through (`pointer-events: none` on `.toast`;
+`pointer-events: auto` only on `.toast-undo`), so a transient toast
+can never eat a tap meant for a button underneath it. Tap-to-dismiss
+for plain toasts is gone (the timer already dismisses them); the
+Undo button stays tappable.
+
+### 3. Decided table root cause — it was never the wrapper
+
+The rerun measured the Requests "Decided" table at 585px in a 390px
+view. The previous batch's `.table-scroll` wrapper WAS applied to
+this table — and it did contain the page overflow (page scrollWidth
+was 390) — but the table itself still rendered 545px wide inside
+its 366px wrapper (Reports was 525px), so the right columns were
+only reachable via an undiscoverable inner horizontal scroll. The
+root cause is the tables' content: 6–7 columns of unbreakable text
+(IDs, phone numbers, dates) at their min-content widths simply do
+not fit 366px, and no wrapper can shrink a table below its
+min-content width. A second bug surfaced during the probe: the
+tables had no `<thead>` — the header row was an implicit-tbody
+`<tr>` whose `th` cells rendered at min-content width and pushed the
+page to 402px; adding an explicit `<thead>` fixed that.
+
+Fix (real, measured): the two wide tables (Decided log, Reports)
+render with class `stack-narrow` + `data-label` attributes on every
+`<td>` and explicit `<thead>`/`<tbody>`, and a ≤560px media query
+stacks them into labelled cards (thead hidden, rows become cards,
+labels via `td::before { content: attr(data-label) }`). After the
+fix both tables measure 366px (fit container) and page scrollWidth
+is 390 everywhere. Contacts and Manage tables already fit at 366px
+and were left alone.
+
+### 4. Announcements age out / dismiss
+
+- Dismiss: the banner's (×) button hides it; dismissed alert ids
+  persist in `state.dismissedAlerts` (new field, normalized in
+  `Store.load`, cleared by `clearMyData`, seeded empty) so a reload
+  does not resurrect them. The underlying log/activity data is
+  untouched. Live-state alerts (e.g. backup-needed while
+  `backupNeeded` is true) are never dismissible this way — they keep
+  their existing live-state filtering.
+- Age-out: "call" (new-call notification) alerts older than 24h
+  never render in the banner. Live-state alerts are unaffected by
+  the 24h rule while still true.
+- The banner now shows the most recent live alert as one compact
+  line (ellipsis + "+N more").
+
+### Tests
+
+New `tests/smoke.mjs` section 15 (17 checks; **91/91 total** in
+headless Chrome at 390×844): (a) primary tabs per role — dispatcher
+Home/Calls/New call/Requests in one row with New call prominent,
+member Home/Calls/Contacts, super admin Home/Calls/Manage; (b)
+hamburger opens with grouped moved screens + role switch + reset,
+menu tab navigates and closes the menu, Escape closes it, role
+switch works from inside the menu; (c) first call card top 420px
+(<500px); (d) one-tap Correct shows a real Undo button, Undo
+reopens the call, Undo toast survives a tap elsewhere; (e) Decided
+and Reports tables fit 390px (page scrollWidth 390, tables 366px);
+(f) banner dismiss persists across reload, >24h-old "call" alert
+never renders.
+
+Harness notes from this batch (all test-side, not app bugs):
+- `goTab()` helper: clicks a primary tab if present, else opens the
+  menu and clicks the menu item. All 26 existing `clickAction("tab")`
+  calls were retargeted through it.
+- The `#menu-backdrop` also carries `data-action="menu-close"`, so a
+  bare `page.click('[data-action="menu-close"]')` clicks the
+  full-screen backdrop's center — which the drawer covers — instead
+  of the close button. The test now uses `#menu
+  [data-action="menu-close"]`.
+- The `window.confirm = () => true` override is needed for the
+  data-clear/reset checks (native confirm auto-dismisses as false
+  in headless Chrome).
 
 ## What was NOT tested
 

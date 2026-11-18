@@ -5,23 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>Dispatch MVP — Prototype (Fake Data)</title>
-<link rel="stylesheet" href="styles.css?v=20261117-colors">
+<link rel="stylesheet" href="styles.css?v=20261117-nav">
 </head>
 <body>
 <header>
+  <button class="menu-btn" type="button" data-action="menu-open" aria-label="Open menu" aria-expanded="false">☰</button>
   <div class="brand">
     <strong>Dispatch MVP</strong>
     <span class="tag">PROTOTYPE — FAKE DATA ONLY</span>
   </div>
-  <div class="who">
-    <label for="role-switch">Signed in as</label>
-    <select id="role-switch" aria-label="Switch fake user"></select>
-    <button id="reset-demo" type="button" class="btn small">Reset demo data</button>
-  </div>
 </header>
 
 <div id="alert-banner" class="alert-banner" hidden></div>
-<div class="warn">Test prototype on your own device — do not enter real live-dispatch caller or member data. Test data only.</div>
+<div class="warn">Test prototype on your own device — do not enter real live-dispatch caller or member data.</div>
 
 <nav id="tabs" aria-label="Sections"></nav>
 
@@ -33,9 +29,27 @@
 
 <div id="toast" class="toast" hidden></div>
 
+<!-- Hamburger side menu: every screen not in the primary tabs lives
+     here, grouped; the role switcher (a demo/test control) lives at
+     the bottom of the menu, not in the header. -->
+<div id="menu-backdrop" data-action="menu-close" hidden></div>
+<aside id="menu" aria-label="Menu" hidden>
+  <div class="menu-head">
+    <strong>Menu</strong>
+    <button type="button" class="btn small secondary" data-action="menu-close" aria-label="Close menu">✕</button>
+  </div>
+  <div id="menu-body"></div>
+  <div class="menu-foot">
+    <label for="role-switch">Signed in as <span class="muted">(demo — switch the fake user)</span></label>
+    <select id="role-switch" aria-label="Switch fake user"></select>
+    <button id="reset-demo" type="button" class="btn small secondary">Reset demo data</button>
+    <p class="muted">Test prototype — fake data only.</p>
+  </div>
+</aside>
+
 <p class="foot">Static prototype for single-phone testing. No server, no network calls, no real dispatch. Caller details are hidden in the UI only — this does <em>not</em> prove server-side privacy enforcement. See README.md.</p>
 
-<script src="seed.js?v=20261117-colors"></script>
-<script src="app.js?v=20261117-colors"></script>
+<script src="seed.js?v=20261117-nav"></script>
+<script src="app.js?v=20261117-nav"></script>
 </body>
 </html>
