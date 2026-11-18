@@ -653,8 +653,21 @@ var ICONS = {
   bell: svg('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'),
   check: svg('<polyline points="20 6 9 17 4 12"/>'),
   chev: svg('<polyline points="9 18 15 12 9 6"/>'),
-  route: svg('<polygon points="3 11 22 2 13 21 11 13 3 11"/>')
+  route: svg('<polygon points="3 11 22 2 13 21 11 13 3 11"/>'),
+  home: svg('<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>'),
+  list: svg('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>'),
+  plus: svg('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
+  inbox: svg('<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'),
+  users: svg('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+  gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
+  wrench: svg('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'),
+  chart: svg('<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>'),
+  file: svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'),
+  clock: svg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
+  database: svg('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>')
 };
+// Bottom tab bar icons (icons + labels). Keys are tab ids.
+var TAB_ICON = { home: "home", calls: "list", new: "plus", requests: "inbox", contacts: "users", manage: "gear", equipment: "wrench", dashboard: "chart", reports: "file", history: "clock", data: "database" };
 // Call card, reference layout: big address + incident/time on top,
 // icon-led rows (what / phone / notes), responder pills, then a
 // 5-icon action bar — Add, Backup, Correct, Call, Maps. Only the
@@ -816,16 +829,78 @@ function renderMenu() {
 }
 
 function openMenu() {
+  var wasHidden = $("#menu").hidden;
   renderMenu();
   $("#menu").hidden = false; $("#menu-backdrop").hidden = false;
   var b = document.querySelector('[data-action="menu-open"]');
   if (b) b.setAttribute("aria-expanded", "true");
+  if (wasHidden) pushOverlayState();
 }
 function closeMenu() {
+  if (!$("#menu").hidden) syncOverlayHistory("menu");
   $("#menu").hidden = true; $("#menu-backdrop").hidden = true;
   var b = document.querySelector('[data-action="menu-open"]');
   if (b) b.setAttribute("aria-expanded", "false");
 }
+
+// Android back button: opening the call dialog or the drawer pushes
+// one history entry, so back closes the overlay first instead of
+// leaving the app. The entry is consumed by the back press itself —
+// the popstate handler clears the flag before closing, so no second
+// back() fires. A programmatic close (button, Escape, backdrop) pops
+// the entry via history.back() instead, so one back press is never
+// eaten. The dialog's close event is the single cleanup point for
+// dialog closes (Esc closes natively and still fires it).
+//
+// Two timing facts shape this code (both verified in Chrome, Nov 17):
+// (1) The dialog `close` event fires on a LATER TASK, not
+// synchronously with d.close() — a close listener has NOT run when
+// close() returns. A fast close-then-reopen therefore lands in
+// syncOverlayHistory with the NEW dialog already open; popping
+// history then would eat the new overlay's entry and the popstate
+// would close it (this crashed the section-6 put-out check twice).
+// So sync bails out whenever an overlay other than the one being
+// closed is open — the entry already on the stack backs the new
+// overlay instead, and the new overlay's own close pops it.
+// (2) A popstate caused by our own back() can likewise arrive after
+// a newer overlay opened; the timestamp guard below leaves that
+// overlay open (it is not the one the back press was for).
+var overlayPushed = false;
+var overlayOpenedAt = 0; // when the current overlay's entry was pushed
+var ownBackAt = 0;       // when syncOverlayHistory last called history.back()
+function pushOverlayState() {
+  if (overlayPushed) return;
+  try { history.pushState({ dispatchOverlay: true }, ""); overlayPushed = true; overlayOpenedAt = Date.now(); } catch (e) { /* file:// or no history */ }
+}
+function syncOverlayHistory(closing) {
+  if (!overlayPushed) return;
+  var d = $("#dlg");
+  var m = $("#menu");
+  // A newer dialog opened after this one closed (see (1) above).
+  if (d && d.open) return;
+  // A newer menu opened after this dialog closed — but not the menu
+  // being closed by closeMenu itself, which is the current overlay.
+  if (closing !== "menu" && m && !m.hidden) return;
+  overlayPushed = false;
+  ownBackAt = Date.now();
+  try { history.back(); } catch (e) { /* ignore */ }
+}
+window.addEventListener("popstate", function (ev) {
+  // Landing ON an overlay entry means the back press was overtaken
+  // by a newer overlay opening after the close that queued it — the
+  // new overlay stays open and the flag stays set.
+  if (ev.state && ev.state.dispatchOverlay) { ownBackAt = 0; return; }
+  var d = $("#dlg");
+  var m = $("#menu");
+  var overlayOpen = (d && d.open) || (m && !m.hidden);
+  // A popstate from our own back() arriving after a newer overlay
+  // opened (see (2) above) is not for that overlay — leave it open.
+  if (overlayOpen && ownBackAt && overlayOpenedAt > ownBackAt) { ownBackAt = 0; return; }
+  ownBackAt = 0;
+  overlayPushed = false; // the back press left the overlay entry
+  if (d && d.open) { closeDialog(); return; }
+  if (m && !m.hidden) { closeMenu(); }
+});
 
 function render() {
   var me = Store.me();
@@ -837,7 +912,9 @@ function render() {
   var all = allTabs();
   if (!all.some(function (t) { return t[0] === App.tab; })) App.tab = "home";
   $("#tabs").innerHTML = tabs.map(function (t) {
-    return '<button data-action="tab" data-tab="' + t[0] + '"' + (App.tab === t[0] ? ' aria-current="true"' : "") + (t[0] === "new" ? ' class="tab-new"' : "") + ">" + esc(t[1]) + "</button>";
+    // Bottom tab bar (icons + labels, fixed, thumb-reach): the same
+    // primary tabs per role as before — the top tab row is gone.
+    return '<button data-action="tab" data-tab="' + t[0] + '"' + (App.tab === t[0] ? ' aria-current="true"' : "") + (t[0] === "new" ? ' class="tab-new"' : "") + '><span class="tab-ic" aria-hidden="true">' + ICONS[TAB_ICON[t[0]] || "list"] + '</span><span class="tab-label">' + esc(t[1]) + "</span></button>";
   }).join("");
   renderMenu();
   // In-app alert banner (all org members except super admin).
@@ -931,7 +1008,7 @@ function viewHomeMember(me, mine, needMe, backup) {
       if (c.backupNeeded) meta += (meta ? " · " : "") + "BACKUP";
       return homeRow(c, meta, c.backupNeeded ? "backup" : "");
     }).join("");
-  } else h += "<p>You are not responding to any call right now.</p>";
+  } else h += '<p class="empty">You are not responding to any call right now.</p>';
   if (myReqs.length) {
     h += homeHead("My privacy requests", myReqs.length, 2) + myReqs.slice(0, 2).map(homeReqRow).join("");
   }
@@ -942,7 +1019,7 @@ function viewHomeMember(me, mine, needMe, backup) {
       if (c.backupNeeded) meta += (meta ? " · " : "") + "BACKUP";
       return homeRow(c, meta, c.urgent ? "urgent" : (c.backupNeeded ? "backup" : ""));
     }).join("");
-  } else h += "<p>No open calls need a response right now.</p>";
+  } else h += '<p class="empty">No open calls need a response right now.</p>';
   return h + "</div>";
 }
 
@@ -957,7 +1034,7 @@ function viewHome() {
   h += '<p class="muted">Signed in as <strong>' + esc(me.name) + "</strong> (" + roleLabel(me.role) + (me.inventoryManager ? " + inventory manager" : "") + ").</p>";
   if (backup.length) h += '<div class="attention"><strong>Backup needed:</strong> ' + backup.map(function (c) { return esc(c.incident) + " — " + esc(c.nature); }).join("; ") + "</div>";
   if (mine.length) h += "<h2>My calls right now</h2>" + mine.map(callCard).join("");
-  else h += "<p>You are not responding to any call right now.</p>";
+  else h += '<p class="empty">You are not responding to any call right now.</p>';
   // My privacy requests (item 4b): the signed-in member's own
   // hidden-data requests, with status and a link back to each call —
   // so a request is still visible after its toast fades.
@@ -980,9 +1057,9 @@ function viewHome() {
   if (needMe.length && (me.role === "member" || me.role === "coordinator")) {
     h += "<h2>Open calls needing a response</h2>" + needMe.map(callCard).join("");
   } else if (me.role === "dispatcher" || me.role === "coordinator") {
-    h += "<h2>Open calls</h2>" + (open.length ? open.map(callCard).join("") : "<p>No open calls.</p>");
+    h += "<h2>Open calls</h2>" + (open.length ? open.map(callCard).join("") : '<p class="empty">No open calls.</p>');
   } else if (me.role === "super-admin") {
-    h += "<h2>Open calls</h2>" + (open.length ? open.map(callCard).join("") : "<p>No open calls.</p>");
+    h += "<h2>Open calls</h2>" + (open.length ? open.map(callCard).join("") : '<p class="empty">No open calls.</p>');
   }
   return h;
 }
@@ -994,8 +1071,8 @@ function viewCalls() {
   var isMember = Store.me().role === "member";
   var open = Store.state.calls.filter(function (c) { return isMember ? c.status === "open" : c.status !== "closed"; });
   var closed = Store.state.calls.filter(function (c) { return c.status === "closed"; });
-  h += "<h2>" + (isMember ? "Open" : "Open &amp; drafts") + "</h2>" + (open.length ? open.map(callCard).join("") : "<p>No open calls.</p>");
-  h += "<h2>Closed</h2>" + (closed.length ? closed.map(callCard).join("") : "<p>No closed calls yet.</p>");
+  h += "<h2>" + (isMember ? "Open" : "Open &amp; drafts") + "</h2>" + (open.length ? open.map(callCard).join("") : '<p class="empty">No open calls.</p>');
+  h += "<h2>Closed</h2>" + (closed.length ? closed.map(callCard).join("") : '<p class="empty">No closed calls yet.</p>');
   return h;
 }
 
@@ -1070,7 +1147,11 @@ function assignPickerHTML(c) {
 }
 
 /* ----- call detail dialog ----- */
-function openDialog(html) { $("#dlg-body").innerHTML = html; var d = $("#dlg"); if (!d.open) d.showModal(); }
+function openDialog(html) {
+  $("#dlg-body").innerHTML = html;
+  var d = $("#dlg");
+  if (!d.open) { d.showModal(); pushOverlayState(); }
+}
 function closeDialog() { var d = $("#dlg"); if (d.open) d.close(); }
 // Friendly close-outcome labels (stored codes stay the OUTCOMES values).
 // Nothing is pre-selected — closing requires picking one.
@@ -1213,7 +1294,7 @@ function viewEquipment() {
       (e.status !== "in-stock" ? '<button class="btn small" data-action="return-equipment" data-item="' + e.id + '">Mark returned</button>' : "") +
       (canManage ? '<button class="btn small secondary" data-action="equip-edit" data-item="' + e.id + '">Edit</button>' : "") +
       "</article>";
-  }).join("") || "<p>No equipment yet — add some.</p>";
+  }).join("") || '<p class="empty">No equipment yet — add some.</p>';
   h += "<h2>Loans</h2>";
   // Only the NEXT action for the loan's current state, with a hint so
   // the state is clear — never the full lifecycle button row.
@@ -1231,7 +1312,7 @@ function viewEquipment() {
       '<p class="muted">' + (next ? next[2] : "Closed — nothing left to do.") + "</p>" +
       (next ? '<button class="btn small secondary" data-action="loan-step" data-id="' + l.id + '" data-step="' + next[0] + '">' + next[1] + "</button>" : "") +
       "</article>";
-  }).join("") : "<p>No loans yet.</p>";
+  }).join("") : '<p class="empty">No loans yet.</p>';
   return h;
 }
 
@@ -1290,9 +1371,9 @@ function viewRequests() {
       '<label>Grant duration <select id="dur-' + r.id + '"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="">Forever</option></select></label>' +
       '<button class="btn" data-action="approve-request" data-id="' + r.id + '">Approve</button>' +
       '<button class="btn danger" data-action="deny-request" data-id="' + r.id + '">Deny</button></article>';
-  }).join("") : "<p>No pending requests.</p>");
+  }).join("") : '<p class="empty">No pending requests.</p>');
   h += "<h2>Decided (log)</h2>" + (done.length ? '<div class="table-scroll"><table class="stack-narrow"><thead><tr><th>Who</th><th>Call</th><th>Fields</th><th>Status</th><th>Duration</th><th>Approved by</th><th>Expires</th></tr></thead><tbody>' +
-    done.map(function (r) { var c = Store.call(r.callId); return "<tr><td data-label=\"Who\">" + userName(r.requesterId) + "</td><td data-label=\"Call\">" + esc(c ? c.incident : r.callId) + "</td><td data-label=\"Fields\">" + esc(r.fields.join(", ")) + "</td><td data-label=\"Status\">" + esc(r.status) + "</td><td data-label=\"Duration\">" + (r.durationMinutes ? r.durationMinutes + " min" : (r.status === "approved" ? "forever" : "—")) + "</td><td data-label=\"Approved by\">" + (r.approvedBy ? userName(r.approvedBy) : "—") + "</td><td data-label=\"Expires\">" + (r.expiresAt ? fmtDT(r.expiresAt) : "—") + "</td></tr>"; }).join("") + "</tbody></table></div>" : "<p>Nothing yet.</p>");
+    done.map(function (r) { var c = Store.call(r.callId); return "<tr><td data-label=\"Who\">" + userName(r.requesterId) + "</td><td data-label=\"Call\">" + esc(c ? c.incident : r.callId) + "</td><td data-label=\"Fields\">" + esc(r.fields.join(", ")) + "</td><td data-label=\"Status\">" + esc(r.status) + "</td><td data-label=\"Duration\">" + (r.durationMinutes ? r.durationMinutes + " min" : (r.status === "approved" ? "forever" : "—")) + "</td><td data-label=\"Approved by\">" + (r.approvedBy ? userName(r.approvedBy) : "—") + "</td><td data-label=\"Expires\">" + (r.expiresAt ? fmtDT(r.expiresAt) : "—") + "</td></tr>"; }).join("") + "</tbody></table></div>" : '<p class="empty">Nothing yet.</p>');
   h += "<h2>Activity log</h2><ul>" + Store.state.activityLog.slice(0, 30).map(function (a) { return "<li>" + fmtDT(a.at) + " — " + esc(a.text) + "</li>"; }).join("") + "</ul>";
   return h;
 }
@@ -1306,7 +1387,7 @@ function viewHistory() {
       "<dl class=\"kv\"><dt>Date</dt><dd>" + fmtDT(c.closedAt) + "</dd><dt>Outcome</dt><dd>" + esc(outcomeLabel(c.outcome)) + "</dd>" +
       "<dt>Caller</dt><dd>" + (Store.canSeeCaller(c, me.id) ? esc(c.callerName) + " — " + telLink(c.callerPhone) : "Hidden after close") + "</dd></dl>" +
       '<button class="btn small" data-action="open-call" data-id="' + c.id + '">Open call</button></article>';
-  }).join("") : "<p>No closed calls you responded to yet.</p>";
+  }).join("") : '<p class="empty">No closed calls you responded to yet.</p>';
   return h;
 }
 
@@ -1336,11 +1417,11 @@ function viewManage() {
           ' <button class="btn small secondary" data-action="address-edit" data-addr="' + esc(a) + '">Edit</button>' +
           ' <button class="btn small danger" data-action="address-delete" data-addr="' + esc(a) + '">Delete</button>' +
           ' <button class="btn small secondary" data-action="exclude-address" data-addr="' + esc(a) + '">Exclude from history suggestions</button></div>';
-      }).join("") || "<p>No saved addresses yet.</p>";
+      }).join("") || '<p class="empty">No saved addresses yet.</p>';
     h += "<h3>Excluded from history suggestions</h3><p class=\"muted\">Excluded addresses keep their call records, stop being suggested from a caller’s phone-number history, and drive no history-based suggestions for any caller. Normal typeahead while typing is unaffected.</p>" +
       (s.excludedAddresses.length ? s.excludedAddresses.map(function (a) {
         return '<div class="card">' + esc(a) + ' <button class="btn small secondary" data-action="unexclude-address" data-addr="' + esc(a) + '">Remove exclusion</button></div>';
-      }).join("") : "<p>None excluded.</p>");
+      }).join("") : '<p class="empty">None excluded.</p>');
   }
   if (Store.can("manage-fleet")) {
     h += "<h2>Fleet</h2><form id=\"fleet-add-form\"><label for=\"fleet-new\">Add a vehicle</label><input type=\"text\" id=\"fleet-new\" name=\"name\"><div><button class=\"btn\" type=\"submit\">Add vehicle</button></div></form>" +
@@ -1348,7 +1429,7 @@ function viewManage() {
         return '<div class="card">' + esc(v.name) + ' <span class="badge">' + (v.active ? "active" : "inactive") + "</span>" +
           ' <button class="btn small secondary" data-action="fleet-edit" data-id="' + v.id + '">Rename</button>' +
           ' <button class="btn small secondary" data-action="fleet-toggle" data-id="' + v.id + '">' + (v.active ? "Deactivate" : "Reactivate") + "</button></div>";
-      }).join("") || "<p>No vehicles yet.</p>";
+      }).join("") || '<p class="empty">No vehicles yet.</p>';
   }
   if (!Store.can("manage-members") && !Store.can("manage-natures") && !Store.can("manage-addresses") && !Store.can("manage-fleet")) {
     h += "<p>You don’t manage any of these. Inventory management lives on the Equipment tab.</p>";
@@ -1743,6 +1824,32 @@ document.addEventListener("click", function (e) {
 });
 
 /* ----- init ----- */
+// A reload while the dialog or the drawer was open leaves the history
+// pointer ON that overlay's entry (the overlay itself is gone — fresh
+// page, nothing open). Strip the overlay state from the current entry
+// so the push/back discipline above starts clean: without this, the
+// stale entry sits under every later push and a back press lands on
+// it instead of the page entry, so back stops closing overlays (the
+// 20d failure — a section-5 reload with the dialog open stranded the
+// pointer, and every later back() hit the stale entry). replaceState
+// touches only the current entry; entries further down are plain
+// already, so a back press from any later overlay lands on a plain
+// entry and closes it.
+try {
+  if (history.state && history.state.dispatchOverlay) history.replaceState(null, "");
+} catch (e) { /* file:// or no history */ }
+// Service worker (PWA app shell): register only when supported and
+// not on file:// — service workers need a secure origin. A failed
+// registration is silent; the app works exactly as before without
+// it. The last-used role is already persisted (Store.state.
+// currentUserId is saved on every role switch and restored by
+// Store.load), so an installed app reopens with the same role.
+if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
+  navigator.serviceWorker.register("sw.js").catch(function () { /* offline shell is best-effort */ });
+}
+// Dialog close (any cause: button, Escape, programmatic) pops the
+// history entry the open pushed, so Android back is never eaten.
+$("#dlg").addEventListener("close", function () { syncOverlayHistory("dialog"); });
 // The toast body is click-through (pointer-events: none in CSS) so a
 // transient toast never swallows a tap meant for a button underneath
 // it; only the Undo button inside a toast is tappable. Toasts hide

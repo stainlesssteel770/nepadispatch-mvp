@@ -18,6 +18,21 @@ page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + 
 await page.goto(URL, { waitUntil: "networkidle0" });
 await sleep(400);
 
+// CDP clicks land where the element's centre is — and the fixed
+// bottom tab bar now covers the bottom ~57px of the viewport, so a
+// button near the fold can sit under the bar after puppeteer's
+// minimal scroll-into-view (the Data "Clear all my data" button did
+// exactly that: top 787, centre under the bar, click never reached
+// it). Scroll every click target to the vertical centre first; a
+// real user does the same by scrolling the button clear of the bar.
+// Fixed elements (tabs, menu, dialog) are unaffected by the scroll.
+const rawClick = page.click.bind(page);
+page.click = async (sel, opts) => {
+  await page.evaluate((s) => { const el = document.querySelector(s); if (el) el.scrollIntoView({ block: "center" }); }, sel).catch(() => {});
+  await sleep(80);
+  return rawClick(sel, opts);
+};
+
 const text = async () => await page.evaluate(() => document.body.innerText);
 const setRole = async (id) => { await page.select("#role-switch", id); await sleep(250); };
 const clickAction = async (action, extra = {}) => {
@@ -698,17 +713,17 @@ const primDisp = await page.evaluate(() => {
   const btns = [...document.querySelectorAll("#tabs button")];
   const first = btns[0].getBoundingClientRect();
   return {
-    labels: btns.map((b) => b.innerText),
+    labels: btns.map((b) => b.innerText.trim()),
     singleRow: btns.every((b) => { const r = b.getBoundingClientRect(); return Math.abs(r.top - first.top) < 2 && Math.abs(r.bottom - first.bottom) < 2; }),
     newCallProminent: !!document.querySelector('#tabs button.tab-new[data-tab="new"]'),
   };
 });
 check("15a: dispatcher primaries are Home, Calls, New call, Requests in one row, New call prominent", primDisp.labels.join("|") === "Home|Calls|New call|Requests" && primDisp.singleRow && primDisp.newCallProminent, JSON.stringify(primDisp));
 await setRole("u-m4");
-const primMem = await page.evaluate(() => [...document.querySelectorAll("#tabs button")].map((b) => b.innerText).join("|"));
+const primMem = await page.evaluate(() => [...document.querySelectorAll("#tabs button")].map((b) => b.innerText.trim()).join("|"));
 check("15a: member primaries are Home, Calls, Contacts", primMem === "Home|Calls|Contacts", primMem);
 await setRole("u-super");
-const primSup = await page.evaluate(() => [...document.querySelectorAll("#tabs button")].map((b) => b.innerText).join("|"));
+const primSup = await page.evaluate(() => [...document.querySelectorAll("#tabs button")].map((b) => b.innerText.trim()).join("|"));
 check("15a: super admin primaries are Home, Calls, Manage", primSup === "Home|Calls|Manage", primSup);
 await setRole("u-disp");
 
@@ -1596,6 +1611,197 @@ await page.evaluate(() => {
 await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
 const oldShown19 = await page.evaluate(() => !document.querySelector("#alert-banner").hidden && document.querySelector("#alert-banner").innerText.includes("S19 OLD ALERT"));
 check("19-8 (item 15): a 25h-old new-call alert never renders in the banner", !oldShown19);
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 20. Design overhaul — PWA + bottom tab bar (Nov 17 evening).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await setRole("u-disp");
+
+// (20a) Manifest: fetchable, valid fields; icons are real PNGs at
+// the declared sizes; PWA meta + links present in the page.
+const man = await page.evaluate(async () => {
+  const r = await fetch("manifest.webmanifest");
+  const j = await r.json();
+  return { ok: r.ok, name: j.name, short: j.short_name, display: j.display, start: j.start_url, theme: j.theme_color, bg: j.background_color, icons: (j.icons || []).map((i) => i.sizes + ":" + (i.purpose || "any")) };
+});
+check("20a: manifest fetchable — Dispatch MVP, standalone, navy theme, 192+512 (+maskable) icons", man.ok && man.name === "Dispatch MVP" && man.short === "Dispatch" && man.display === "standalone" && man.start === "." && man.theme === "#16233f" && man.bg === "#16233f" && man.icons.length >= 3, JSON.stringify(man));
+const iconSizes = await page.evaluate(async () => {
+  const out = [];
+  for (const u of ["icons/icon-192.png", "icons/icon-512.png", "icons/icon-512-maskable.png", "icons/apple-touch-icon.png", "icons/favicon-32.png"]) {
+    const img = new Image();
+    await new Promise((res) => { img.onload = res; img.onerror = res; img.src = u; });
+    out.push({ u, w: img.naturalWidth, h: img.naturalHeight });
+  }
+  return out;
+});
+check("20a: icons are real PNGs at 192/512/512-maskable/180/32", iconSizes[0].w === 192 && iconSizes[1].w === 512 && iconSizes[2].w === 512 && iconSizes[3].w === 180 && iconSizes[4].w === 32, JSON.stringify(iconSizes));
+const meta = await page.evaluate(() => ({
+  manifest: !!document.querySelector('link[rel="manifest"]'),
+  theme: document.querySelector('meta[name="theme-color"]')?.content,
+  viewport: document.querySelector('meta[name="viewport"]')?.content,
+  appleCapable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.content,
+  appleIcon: !!document.querySelector('link[rel="apple-touch-icon"]'),
+  favicon: document.querySelector('link[rel="icon"]')?.href || "",
+}));
+check("20a: PWA meta + links present (manifest, theme-color, viewport-fit=cover, apple-capable, apple-touch-icon, real favicon)", meta.manifest && meta.theme === "#16233f" && /viewport-fit=cover/.test(meta.viewport || "") && meta.appleCapable === "yes" && meta.appleIcon && /favicon-32\.png/.test(meta.favicon), JSON.stringify(meta));
+
+// (20b) Service worker: registers, precaches the versioned shell,
+// and the installed app launches offline.
+const swOk = await page.evaluate(async () => {
+  if (!("serviceWorker" in navigator)) return { supported: false };
+  const reg = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 8000))]);
+  if (!reg) return { supported: true, timedOut: true };
+  const names = await caches.keys();
+  const cache = await caches.open(names.find((n) => n.indexOf("dispatch-mvp-") === 0) || names[0]);
+  const keys = await cache.keys();
+  return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
+});
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261117-pwa"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261117-pwa", "app.js?v=20261117-pwa", "seed.js?v=20261117-pwa", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+await page.setOfflineMode(true);
+await page.reload({ waitUntil: "domcontentloaded" });
+await sleep(600);
+const offlineRender = await page.evaluate(() => ({ tabs: document.querySelectorAll("#tabs button").length, view: document.querySelector("#view").innerText }));
+check("20b: app renders offline after reload (shell served from cache)", offlineRender.tabs >= 3 && offlineRender.view.includes("INC-1042"), JSON.stringify({ tabs: offlineRender.tabs, hasInc: offlineRender.view.includes("INC-1042") }));
+await page.setOfflineMode(false);
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+
+// (20c) Installed app reopens with the last-used role.
+await setRole("u-m2");
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+const roleKept = await page.evaluate(() => document.querySelector("#role-switch").value);
+check("20c: last-used role (u-m2) is restored after reload", roleKept === "u-m2", "role=" + roleKept);
+await setRole("u-disp");
+
+// (20d) Android back: closes the open dialog first, then the drawer.
+await goTab("calls");
+await openCard("INC-1043");
+await sleep(300);
+const dlgOpenBefore = await page.evaluate(() => document.querySelector("#dlg").open);
+await page.evaluate(() => history.back());
+await sleep(400);
+const dlgAfterBack = await page.evaluate(() => document.querySelector("#dlg").open);
+check("20d: Android back closes the open call dialog first (no navigation away)", dlgOpenBefore && !dlgAfterBack, "wasOpen=" + dlgOpenBefore + " nowOpen=" + dlgAfterBack);
+await page.click('[data-action="menu-open"]'); await sleep(300);
+const menuOpenBefore = await page.evaluate(() => !document.querySelector("#menu").hidden);
+await page.evaluate(() => history.back());
+await sleep(400);
+const menuAfterBack = await page.evaluate(() => document.querySelector("#menu").hidden);
+check("20d: Android back closes the drawer first (no navigation away)", menuOpenBefore && menuAfterBack, "wasOpen=" + menuOpenBefore + " nowHidden=" + menuAfterBack);
+
+// (20e) Touch + contrast re-check after the restyle.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+await page.evaluate(() => {
+  const card = [...document.querySelectorAll(".card")].find((c) => c.innerText.includes("INC-1043"));
+  card.querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+const toastBtns = await page.evaluate(() => {
+  const out = [];
+  document.querySelectorAll(".toast-choice, .toast-x").forEach((b) => { const r = b.getBoundingClientRect(); out.push({ cls: b.className, w: Math.round(r.width), h: Math.round(r.height) }); });
+  return out;
+});
+check("20e: Correct choice-toast buttons (3 choices + dismiss) are all >= 44px", toastBtns.length === 4 && toastBtns.every((b) => b.w >= 44 && b.h >= 44), JSON.stringify(toastBtns));
+await page.evaluate(() => { [...document.querySelectorAll(".toast-choice")].find((b) => b.textContent === "Corrected").click(); });
+await sleep(400);
+const undoBtn = await page.evaluate(() => {
+  const b = document.querySelector(".toast-undo");
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return { w: Math.round(r.width), h: Math.round(r.height) };
+});
+check("20e: Undo button after a Correct close is >= 44px", undoBtn && undoBtn.w >= 44 && undoBtn.h >= 44, JSON.stringify(undoBtn));
+// primary controls on the Calls tab: tabs, bar segments, buttons
+const touch = await page.evaluate(() => {
+  const bad = [], small = [];
+  document.querySelectorAll("#tabs button, .bar-seg, .btn, .home-row").forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0) return;
+    if (r.width < 24 || r.height < 24) bad.push({ cls: String(el.className).slice(0, 24), w: Math.round(r.width), h: Math.round(r.height) });
+    else if (r.width < 44 || r.height < 44) small.push({ cls: String(el.className).slice(0, 24), w: Math.round(r.width), h: Math.round(r.height) });
+  });
+  return { bad, small };
+});
+check("20e: no interactive element below the 24px WCAG floor; every primary control >= 44px", touch.bad.length === 0 && touch.small.length === 0, JSON.stringify(touch));
+// contrast on the restyled surfaces (19-7a already covers badges +
+// bar-segs): tab labels, New-call tab, footer, tel: link.
+const ratios20 = {
+  tabInactive: await ratioOf("#tabs button:not([aria-current='true'])"),
+  tabActive: await ratioOf("#tabs button[aria-current='true']"),
+  tabNew: await ratioOf("#tabs button.tab-new"),
+  foot: await ratioOf(".foot"),
+};
+check("20e: tab-bar labels, New-call tab and footer all >= 4.5:1", Object.values(ratios20).every((r) => r !== null && r >= 4.5), JSON.stringify(ratios20));
+await goTab("contacts");
+const telRatio = await ratioOf('a[href^="tel:"]');
+check("20e: tap-to-call link >= 4.5:1", telRatio !== null && telRatio >= 4.5, "ratio=" + telRatio);
+
+// (20f) Bottom bar geometry + toast clearance + member Home still
+// fits one screen with the bar present.
+const barGeo = await page.evaluate(() => {
+  const bar = document.querySelector("#tabs").getBoundingClientRect();
+  return {
+    fixed: getComputedStyle(document.querySelector("#tabs")).position === "fixed",
+    bottomGap: Math.round(window.innerHeight - bar.bottom),
+    barH: Math.round(bar.height),
+    icons: [...document.querySelectorAll("#tabs button")].every((b) => !!b.querySelector("svg")),
+  };
+});
+check("20f: bottom tab bar is fixed at the viewport bottom with an icon per tab", barGeo.fixed && barGeo.bottomGap === 0 && barGeo.icons, JSON.stringify(barGeo));
+// toast sits above the bar, not behind it (trigger a real toast via
+// the Interstate placeholder button, then close the dialog so the
+// toast is visible on top of the page, not behind the dialog layer).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1042");
+await sleep(300);
+await page.evaluate(() => { document.querySelector('#dlg-body [data-action="interstate"]').click(); });
+await closeDlg();
+await sleep(300);
+const toastGeo = await page.evaluate(() => {
+  const bar = document.querySelector("#tabs").getBoundingClientRect();
+  const t = document.querySelector("#toast");
+  const r = t.getBoundingClientRect();
+  return { hidden: t.hidden, toastBottom: Math.round(r.bottom), barTop: Math.round(bar.top), above: r.bottom <= bar.top };
+});
+check("20f: toast sits above the bottom tab bar (not behind it)", !toastGeo.hidden && toastGeo.above, JSON.stringify(toastGeo));
+// member Home still fits one screen WITH the bottom bar present,
+// footer visible above the bar.
+await setRole("u-m4");
+await goTab("home");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(200);
+const home20 = await page.evaluate(() => ({ doc: document.documentElement.scrollHeight, barTop: Math.round(document.querySelector("#tabs").getBoundingClientRect().top), footBottom: Math.round(document.querySelector(".foot").getBoundingClientRect().bottom) }));
+check("20f: member Home (u-m4) still fits one 390x844 screen with the bottom bar, footer visible above it", home20.doc <= 844 && home20.footBottom <= home20.barTop, JSON.stringify(home20));
+// (20g) Reload while a dialog is open must not strand the history
+// pointer on the overlay entry (the 20d failure — a section-5 reload
+// with the dialog open left the pointer there, so every later back()
+// landed on the stale entry instead of the page entry and back
+// stopped closing overlays). After such a reload, a fresh dialog
+// still closes on back.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1043");
+await sleep(300);
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400); // reload WITH the dialog open
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1043");
+await sleep(300);
+const gOpen = await page.evaluate(() => document.querySelector("#dlg").open);
+await page.evaluate(() => history.back());
+await sleep(400);
+const gAfter = await page.evaluate(() => document.querySelector("#dlg").open);
+check("20g: after a reload with a dialog open, back still closes a fresh dialog", gOpen && !gAfter, "wasOpen=" + gOpen + " nowOpen=" + gAfter);
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));

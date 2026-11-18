@@ -30,9 +30,20 @@ python3 -m http.server 8123
 Or open `index.html` directly in a browser (everything is local files;
 no network needed).
 
+## Install it on your phone (PWA)
+
+The app is installable: on Android Chrome, open the live site
+(https://stainlesssteel770.github.io/nepadispatch-mvp/) and use
+"Install app" (or Add to Home screen) — it opens standalone, remembers
+your last-used role, and relaunches offline (the app shell is cached on
+the phone; your data lives in the browser's localStorage). On iPhone,
+use Safari → Share → Add to Home Screen. The install flow itself has
+only been verified in headless Chrome so far — a real phone is the
+proof that it works there.
+
 ## Use it
 
-- **Signed in as** (top right): switch between the fake users to test
+- **Signed in as** (in the hamburger menu, top right): switch between the fake users to test
   each role — super admin, coordinator, dispatcher, members (one is
   also the inventory manager). Pages and buttons a role cannot use are
   hidden, not shown disabled.
@@ -88,7 +99,7 @@ the app is safe for live dispatch.
 
 ## Tests
 
-`tests/smoke.mjs` — 23 browser checks (headless Chrome via
+`tests/smoke.mjs` — 201 browser checks (headless Chrome via
 puppeteer-core). It needs `puppeteer-core` installed and Chrome
 available; set `CHROME_PATH` to your Chrome binary. Run from the repo
 root while serving the directory (see “Run it locally”):
@@ -97,7 +108,7 @@ root while serving the directory (see “Run it locally”):
 node tests/smoke.mjs
 ```
 
-Last run: 2026-11-17, 23/23 passed at 390×844 (mobile viewport).
+Last run: 2026-11-18, 201/201 passed at 390×844 (mobile viewport).
 See `PROJECT_HANDOFF.md` for exactly what was and was not tested.
 
 ## Repo (intended)

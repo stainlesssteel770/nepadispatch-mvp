@@ -2,10 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16233f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Dispatch MVP — Prototype (Fake Data)</title>
-<link rel="stylesheet" href="styles.css?v=20261117-pass5">
+<link rel="stylesheet" href="styles.css?v=20261117-pwa">
 </head>
 <body>
 <header>
@@ -19,9 +25,12 @@
 <div id="alert-banner" class="alert-banner" hidden></div>
 <div class="warn">Test prototype on your own device — do not enter real live-dispatch caller or member data.</div>
 
-<nav id="tabs" aria-label="Sections"></nav>
-
 <main id="view"></main>
+
+<!-- Primary tabs live in a fixed bottom tab bar (icons + labels),
+     thumb-reach. Same tabs per role as before; the header is brand +
+     hamburger only. The role switcher stays in the drawer. -->
+<nav id="tabs" aria-label="Sections"></nav>
 
 <dialog id="dlg">
   <div id="dlg-body"></div>
@@ -49,7 +58,7 @@
 
 <p class="foot">Static prototype for single-phone testing. No server, no network calls, no real dispatch. Caller details are hidden in the UI only — this does <em>not</em> prove server-side privacy enforcement. See README.md.</p>
 
-<script src="seed.js?v=20261117-pass5"></script>
-<script src="app.js?v=20261117-pass5"></script>
+<script src="seed.js?v=20261117-pwa"></script>
+<script src="app.js?v=20261117-pwa"></script>
 </body>
 </html>
