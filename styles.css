@@ -146,11 +146,12 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 .card-draft .card-addr .pin, .card-draft .card-row .ic { color: #8a94a6; }
 .card-draft .card-inc, .card-draft .card-row .val { color: #c3ccd9; }
 .card-draft .card-row .val strong { color: #e3e8f0; }
-.card-draft .card-row .val.dim, .card-draft .card-inc .time, .card-draft .card-chev { color: #8a94a6; }
+.card-draft .card-row .val.dim, .card-draft .card-inc .time { color: #b9bfc9; }
+.card-draft .card-chev { color: #8a94a6; }
 .card-draft .pill { background: transparent; color: #9aa5b1; border-color: #5f6b80; }
-.card-draft .pill.dim { color: #8a94a6; border-color: #5f6b80; }
+.card-draft .pill.dim { color: #b9bfc9; border-color: #5f6b80; }
 .card-draft .card-bar { border-top-color: #3a4763; background: rgba(255, 255, 255, .02); }
-.card-draft .bar-seg { border-right-color: #3a4763; color: #8a94a6; }
+.card-draft .bar-seg { border-right-color: #3a4763; color: #c3ccd9; }
 .card-draft .bar-seg:hover { color: #d7dee9; background: rgba(255, 255, 255, .05); }
 .card-draft a { color: #9aa5b1; }
 /* Closed: blue border, bright blue icons, white pills with blue text. */
@@ -200,7 +201,7 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 .pill.dim { background: transparent; color: var(--card-mute); border-color: #3a4c72; font-weight: 600; }
 /* bottom action bar on a call card: thumb-sized icon segments */
 .card-bar { display: flex; margin: 16px -16px -14px; border-top: 1px solid #2a3c63; border-radius: 0 0 17px 17px; overflow: hidden; background: rgba(255, 255, 255, .04); }
-.bar-seg { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 58px; padding: 9px 2px 8px; background: transparent; border: none; border-right: 1px solid #2a3c63; color: var(--card-mute); cursor: pointer; font-size: .72rem; font-weight: 700; text-decoration: none; font-family: inherit; transition: background-color .15s ease, color .15s ease; }
+.bar-seg { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 58px; padding: 9px 2px 8px; background: transparent; border: none; border-right: 1px solid #2a3c63; color: #c3ccd9; cursor: pointer; font-size: .72rem; font-weight: 700; text-decoration: none; font-family: inherit; transition: background-color .15s ease, color .15s ease; }
 .bar-seg:last-child { border-right: none; }
 .bar-seg svg { width: 24px; height: 24px; }
 .bar-seg:hover { color: #fff; background: rgba(255, 255, 255, .06); }
@@ -216,14 +217,40 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 .card-respond-btn { margin: 0; flex: none; }
 .card-eta-error { flex: 1 1 100%; background: #fde2e2; color: #7a1f16; border: 1px solid #f0b4b4; border-radius: 10px; padding: 8px 10px; font-weight: 700; font-size: .9rem; }
 .card-neutral .card-respond-label { color: var(--ink); }
+/* Tap-to-call numbers are thumb targets, not inline text: every
+   tel: link is at least 44px tall (card caller row, dialog, tables).
+   The bar-seg Call link is already 58px+ and is not touched by this
+   rule (it is not inside .card-row / .kv / td). */
+.card-row a[href^="tel:"], .kv a[href^="tel:"], td a[href^="tel:"] { display: inline-block; min-height: 44px; line-height: 44px; padding: 0 4px; white-space: nowrap; }
+
+/* ----- member Home: one screen (decided). Compact one-line rows
+   instead of full cards: incident + nature, then address/status,
+   one tap opens the call. Lists cap at 3 rows with a count + link. */
+.home-compact { margin-bottom: -32px; }
+.home-compact h1 { margin: .3em 0 .15em; }
+.home-compact h2 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: .5em 0 .25em; }
+.home-compact h2 > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-compact p { margin: .35em 0; }
+.home-viewall { flex: none; background: none; border: none; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer; padding: 0; white-space: nowrap; }
+.home-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 5px 12px; margin: 6px 0; min-height: 48px; cursor: pointer; font-family: inherit; font-size: 1rem; color: var(--ink); box-shadow: 0 1px 2px rgba(10, 20, 40, .06); }
+.home-row:active { background: #f2f5f9; }
+.home-row-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.home-row-text strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .95rem; line-height: 1.25; }
+.home-row-text .muted { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .82rem; line-height: 1.25; }
+.home-row-meta { flex: none; font-size: .8rem; font-weight: 800; color: var(--accent); }
+.home-row-meta.urgent { color: var(--red); }
+.home-row-meta.backup { color: #b45309; }
+.home-row-chev { flex: none; color: var(--mute); font-size: 1.2rem; line-height: 1; }
 
 /* ----- badges / status pills ----- */
 .badge { display: inline-block; font-size: .72rem; font-weight: 800; letter-spacing: .03em; padding: 3px 9px; border-radius: 999px; background: #e6ebf2; color: var(--ink); margin: 2px 4px 2px 0; text-transform: uppercase; }
 .badge.urgent { background: var(--red); color: #fff; }
 .badge.covered { background: #2563eb; color: #fff; }
 .badge.backup { background: var(--amber); color: var(--amber-ink); }
-.badge.draft { background: #8a94a6; color: #fff; }
-.badge.closed { background: var(--green); color: #fff; }
+/* Draft/closed badge backgrounds are darkened so white text clears
+   4.5:1 (pass 5: DRAFT was 3.06:1, CLOSED 3.43:1). */
+.badge.draft { background: #5a6474; color: #fff; }
+.badge.closed { background: var(--green-dark); color: #fff; }
 .badge.open { background: var(--accent); color: #fff; }
 
 /* ----- buttons: min 44px tap targets, consistent styles ----- */

@@ -44,6 +44,7 @@ check("role switcher lists users", (await page.$$eval("#role-switch option", (o)
 
 // 1. Member privacy: non-responding member cannot see caller on c2
 await setRole("u-m4");
+await goTab("calls"); // member Home shows compact rows, not cards — open from Calls
 // open c2 by tapping the card body (address) — the whole card opens the call
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
@@ -675,7 +676,11 @@ ci = await cardInfo("INC-1043");
 check("14d: urgent + covered call stays red, carries URGENT + COVERED badges", ci && ci.cls.includes("card-urgent-covered") && ci.urgent && ci.covered, JSON.stringify(ci));
 check("14d: urgent + covered responder pills are blue", ci && ci.pillBg === "rgb(37, 99, 235)", "pillBg=" + (ci && ci.pillBg));
 // draft and closed carry their own classes (section 17), never an
-// open-state class
+// open-state class. (14d above left the role as u-m4, a member —
+// members no longer see drafts at all (19-2) — so switch back to a
+// dispatcher first, or the draft card is correctly absent.)
+await setRole("u-disp");
+await gotoCallsTab();
 const stateClasses = ["card-neutral", "card-urgent", "card-covered", "card-urgent-covered"];
 ci = await cardInfo("INC-1044");
 check("14e: draft card is card-draft, no open-state class", ci && ci.cls.includes("card-draft") && !stateClasses.some((s) => ci.cls.includes(s)), JSON.stringify(ci && ci.cls));
@@ -1263,6 +1268,335 @@ await page.click('#respond-form button[type="submit"]');
 await sleep(400);
 const coordRespOk = await page.evaluate((inc) => { const c = DispatchStore.state.calls.find((x) => x.incident === inc); const r = c && c.responders.find((x) => x.userId === "u-coord"); return !!r && r.eta === "35 min"; }, freshInc);
 check("18i: coordinator responds via the dialog (ETA stored)", coordRespOk);
+
+// 19. Instinct pass 5 fixes (Nov 17 evening).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+
+// WCAG contrast for one element: relative luminance of its text
+// colour against its effective background (ancestor backgrounds
+// composited over white, so the draft card-bar's 2%-white wash is
+// handled instead of read as a near-white background).
+const ratioOf = async (sel) => await page.evaluate((s) => {
+  const lum = (r, g, b) => {
+    const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const parse = (c) => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return null; const p = m[1].split(",").map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+  const el = document.querySelector(s);
+  if (!el) return null;
+  const layers = [];
+  let node = el;
+  while (node) { const bg = parse(getComputedStyle(node).backgroundColor); if (bg && bg.a > 0) layers.push(bg); node = node.parentElement; }
+  let acc = { r: 255, g: 255, b: 255 };
+  for (let i = layers.length - 1; i >= 0; i--) { const l = layers[i]; acc = { r: Math.round(l.r * l.a + acc.r * (1 - l.a)), g: Math.round(l.g * l.a + acc.g * (1 - l.a)), b: Math.round(l.b * l.a + acc.b * (1 - l.a)) }; }
+  const fg = parse(getComputedStyle(el).color);
+  const fr = Math.round(fg.r * fg.a + acc.r * (1 - fg.a)), fgc = Math.round(fg.g * fg.a + acc.g * (1 - fg.a)), fb = Math.round(fg.b * fg.a + acc.b * (1 - fg.a));
+  const l1 = lum(fr, fgc, fb), l2 = lum(acc.r, acc.g, acc.b);
+  const hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+  return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+}, sel);
+const telHeights = async () => await page.evaluate(() => {
+  const bad = [];
+  document.querySelectorAll('a[href^="tel:"]').forEach((a) => { const r = a.getBoundingClientRect(); if (r.height < 44) bad.push({ h: Math.round(r.height), text: a.innerText }); });
+  return { total: document.querySelectorAll('a[href^="tel:"]').length, bad };
+});
+
+// (19-1) M2 — member Home fits one viewport: seed states, then a
+// synthetic worst case (3 mine + 3 requests + 3 needing a response).
+await setRole("u-m4");
+await goTab("home");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(200);
+const homeM4 = await page.evaluate(() => ({ doc: document.documentElement.scrollHeight, win: window.innerHeight, cards: document.querySelectorAll("#view .call-card").length, rows: document.querySelectorAll("#view .home-row").length }));
+check("19-1: member Home (u-m4, seed) fits one viewport, rows not full cards", homeM4.doc <= 844 && homeM4.win === 844 && homeM4.cards === 0 && homeM4.rows === 2, JSON.stringify(homeM4));
+await setRole("u-m2");
+await sleep(300);
+const homeM2 = await page.evaluate(() => document.documentElement.scrollHeight);
+check("19-1: member Home (u-m2, seed) fits one viewport", homeM2 <= 844, "docH=" + homeM2);
+await page.evaluate(() => {
+  DispatchStore.state.currentUserId = "u-m4"; // the stress subject: responds + requests as u-m4
+  for (let i = 1; i <= 3; i++) DispatchStore.createCall({ nature: "Other", address: i + " Stress St, Kingston, PA", callerName: "Stress " + i, callerPhone: "555-01" + (50 + i), alertKind: "silent" }, "key-s19-open-" + i);
+  DispatchStore.respond("c1", "10 min"); DispatchStore.respond("c2", "12 min");
+  const r = DispatchStore.createCall({ nature: "Other", address: "4 Stress St, Kingston, PA", callerName: "Stress 4", callerPhone: "555-0154", alertKind: "silent" }, "key-s19-open-4");
+  DispatchStore.respond(r.call.id, "8 min");
+  for (let i = 1; i <= 3; i++) {
+    const c = DispatchStore.createCall({ nature: "Other", address: i + " Closed St, Kingston, PA", callerName: "Closed " + i, callerPhone: "555-02" + (50 + i), alertKind: "silent" }, "key-s19-closed-" + i);
+    DispatchStore.closeCall(c.call.id, "Corrected");
+    DispatchStore.requestHidden(c.call.id, ["name", "phone"]);
+  }
+  DispatchStore.save();
+});
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-m4");
+await goTab("home");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(200);
+const stress = await page.evaluate(() => ({ doc: document.documentElement.scrollHeight, rows: document.querySelectorAll("#view .home-row").length, viewAll: [...document.querySelectorAll("#view .home-viewall")].map((b) => b.innerText) }));
+check("19-1: member Home fits one viewport at 3+3+3 (caps of 2, counts + View all links)", stress.doc <= 844 && stress.rows === 6 && stress.viewAll.length === 3 && stress.viewAll.every((x) => /View all 3/.test(x)), JSON.stringify(stress));
+await page.evaluate(() => { document.querySelector("#view .home-viewall").click(); });
+await sleep(300);
+const landed = await page.evaluate(() => document.querySelector("#view h1").innerText === "Calls");
+check("19-1: Home 'View all' link lands on the Calls tab in one tap", landed);
+// a Home row opens its call (rows are the one-tap path to the rest)
+await goTab("home");
+await page.evaluate(() => { document.querySelector('#view [data-action="open-call"]').click(); });
+await sleep(300);
+const rowOpens = await page.evaluate(() => document.querySelector("#dlg").open && document.querySelector("#dlg-body").innerText.includes("INC-"));
+check("19-1: tapping a Home row opens its call detail", rowOpens);
+await closeDlg();
+
+// (19-2) D1 — drafts hidden from members everywhere; dispatchers
+// still see them.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-m4");
+await goTab("calls");
+const memCalls = await page.evaluate(() => ({ view: document.querySelector("#view").innerText, h2: document.querySelector("#view h2").innerText }));
+check("19-2: member Calls list shows no draft (INC-1044 absent, heading 'Open')", !memCalls.view.includes("INC-1044") && memCalls.h2 === "Open", JSON.stringify(memCalls).slice(0, 200));
+await goTab("home");
+const memHome = await page.evaluate(() => document.querySelector("#view").innerText);
+check("19-2: member Home shows no draft either", !memHome.includes("INC-1044"));
+await goTab("data");
+const memCount = await page.evaluate(() => { const dd = document.querySelectorAll(".kv dd"); return dd.length ? dd[0].innerText : null; });
+check("19-2: member Data count excludes the draft (4 of 5 calls)", memCount === "4", "count=" + memCount);
+await setRole("u-disp");
+await goTab("calls");
+const dispCalls = await page.evaluate(() => ({ view: document.querySelector("#view").innerText, h2: document.querySelector("#view h2").innerText }));
+check("19-2: dispatcher still sees the draft in Calls", dispCalls.view.includes("INC-1044") && dispCalls.h2 === "Open & drafts", dispCalls.h2);
+
+// (19-3) M1 — requesting caller access re-renders the open detail
+// with the pending state AND fires the toast.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-m4");
+await goTab("calls");
+await openCard("INC-1039");
+await clickAction("request-hidden", { id: "c4" });
+await sleep(400);
+const reqFb = await page.evaluate(() => {
+  const body = document.querySelector("#dlg-body");
+  const tEl = document.querySelector("#toast");
+  return {
+    dlgOpen: document.querySelector("#dlg").open,
+    hasStatus: body && /Your request/.test(body.innerText) && /Pending dispatcher approval/.test(body.innerText),
+    noDupButton: body && !body.querySelector('[data-action="request-hidden"]'),
+    toast: !tEl.hidden && /Request sent/.test(tEl.innerText),
+  };
+});
+check("19-3: after requesting, the detail re-renders with the pending state + toast (no duplicate button)", reqFb.dlgOpen && reqFb.hasStatus && reqFb.noDupButton && reqFb.toast, JSON.stringify(reqFb));
+await closeDlg();
+
+// (19-4) M3 — the stale "can no longer see" wording is gone from the
+// source and from every rendered surface.
+const staleSrc = await page.evaluate(async () => { const r = await fetch("app.js"); const s = await r.text(); return !s.includes("can no longer see"); });
+check("19-4: stale wording is gone from app.js source", staleSrc);
+await setRole("u-m4");
+await goTab("calls");
+await openCard("INC-1039");
+const closedCopy = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+check("19-4: closed-call detail says responders CAN still see the caller", !/can no longer see/.test(closedCopy) && /can still see/.test(closedCopy), closedCopy.slice(0, 300));
+await closeDlg();
+await goTab("history");
+const histCopy = await page.evaluate(() => document.querySelector("#view").innerText);
+check("19-4: My history intro matches the reversal", /unless you responded to the call or have an approved grant/.test(histCopy), histCopy.slice(0, 200));
+
+// (19-5) D2 — closing an urgent call drops it from the banner and
+// prunes its stored alerts.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("home");
+const bBefore = await page.evaluate(() => ({ hidden: document.querySelector("#alert-banner").hidden, text: document.querySelector("#alert-banner").innerText, callAlerts: DispatchStore.state.alerts.filter((a) => a.kind === "call").map((a) => a.callId) }));
+// The banner shows only the first alert's text plus "+N more", so the
+// urgent call's presence is asserted as: a live c2 alert exists AND
+// the banner counts a second alert behind "+1 more".
+check("19-5: banner lists the urgent call (INC-1043) before close", !bBefore.hidden && bBefore.callAlerts.includes("c2") && /\+1 more/.test(bBefore.text), JSON.stringify(bBefore));
+await page.evaluate(() => { DispatchStore.closeCall("c2", "Corrected"); DispatchStore.save(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await goTab("home");
+const bAfter = await page.evaluate(() => ({ hidden: document.querySelector("#alert-banner").hidden, text: document.querySelector("#alert-banner").innerText }));
+check("19-5: closing the urgent call removes it from the banner", bAfter.hidden || !/INC-1043/.test(bAfter.text), JSON.stringify(bAfter));
+const alertGone = await page.evaluate(() => !DispatchStore.state.alerts.some((a) => a.callId === "c2"));
+check("19-5: closing a call prunes its stored alerts", alertGone);
+
+// (19-6) Unit-code migration — pre-unit stored state backfills the
+// six seed codes on load; importJSON does the same; a deliberately
+// blank unit (empty string) is left alone.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+const importOk = await page.evaluate(() => {
+  const st = JSON.parse(JSON.stringify(DispatchStore.state));
+  st.users.forEach((u) => { delete u.unit; });
+  const r = DispatchStore.importJSON(JSON.stringify(st));
+  return r.ok && DispatchStore.state.users.find((u) => u.id === "u-m2").unit === "PA-09";
+});
+check("19-6: importJSON backfills seed units", importOk);
+await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.indexOf("dispatch-mvp-state") === 0);
+  const st = JSON.parse(localStorage.getItem(key));
+  st.users.forEach((u) => { delete u.unit; });
+  localStorage.setItem(key, JSON.stringify(st));
+});
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+const migrated = await page.evaluate(() => DispatchStore.state.users.filter((u) => ["u-coord", "u-disp", "u-m1", "u-m2", "u-m3", "u-m4"].includes(u.id)).map((u) => u.id + "=" + (u.unit || "")).join(","));
+check("19-6: load migrates pre-unit stored seed members to PA-01/02/05/09/19/21", migrated === "u-coord=PA-01,u-disp=PA-02,u-m1=PA-05,u-m2=PA-09,u-m3=PA-19,u-m4=PA-21", migrated);
+await setRole("u-disp");
+await goTab("calls");
+const pillUnits = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1042"));
+  return c ? [...c.querySelectorAll(".pills .pill")].map((p) => p.textContent) : [];
+});
+check("19-6: migrated unit codes render as responder pills (PA-05 on INC-1042)", pillUnits.includes("PA-05"), JSON.stringify(pillUnits));
+await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.indexOf("dispatch-mvp-state") === 0);
+  const st = JSON.parse(localStorage.getItem(key));
+  st.users.find((u) => u.id === "u-m1").unit = "";
+  localStorage.setItem(key, JSON.stringify(st));
+});
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+const blankKept = await page.evaluate(() => DispatchStore.state.users.find((u) => u.id === "u-m1").unit === "");
+check("19-6: a deliberately blank unit (empty string) is left alone, not backfilled", blankKept);
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+
+// (19-7a) Contrast: DRAFT badge, CLOSED badge, bar-seg labels
+// (incl. Maps), draft dim pill — all >= 4.5:1.
+await setRole("u-disp");
+await goTab("calls");
+const ratios = {
+  draftBadge: await ratioOf(".badge.draft"),
+  closedBadge: await ratioOf(".badge.closed"),
+  coveredSeg: await ratioOf(".card-covered .bar-seg"),
+  urgentSeg: await ratioOf(".card-urgent .bar-seg"),
+  draftSeg: await ratioOf(".card-draft .bar-seg"),
+  draftPillDim: await ratioOf(".card-draft .pill.dim"),
+};
+check("19-7a: DRAFT badge >= 4.5:1 (was 3.06)", ratios.draftBadge !== null && ratios.draftBadge >= 4.5, "ratio=" + ratios.draftBadge);
+check("19-7a: CLOSED badge >= 4.5:1 (was 3.43)", ratios.closedBadge !== null && ratios.closedBadge >= 4.5, "ratio=" + ratios.closedBadge);
+check("19-7a: bar-seg labels (incl. Maps) >= 4.5:1 on covered/urgent/draft cards", [ratios.coveredSeg, ratios.urgentSeg, ratios.draftSeg].every((r) => r !== null && r >= 4.5), JSON.stringify(ratios));
+check("19-7a: draft dim pill text >= 4.5:1", ratios.draftPillDim !== null && ratios.draftPillDim >= 4.5, "ratio=" + ratios.draftPillDim);
+
+// (19-7b) Phone tap targets: every rendered tel: link >= 44px tall
+// (card caller rows + Contacts table). Rects only — never click a
+// real tel: link: it swallows later CDP mouse input (see 12e).
+let th = await telHeights();
+check("19-7b: every tel: link on Calls is >= 44px tall", th.total > 0 && th.bad.length === 0, JSON.stringify(th));
+await goTab("contacts");
+th = await telHeights();
+check("19-7b: every tel: link on Contacts is >= 44px tall", th.total >= 7 && th.bad.length === 0, JSON.stringify(th));
+
+// (19-7c) New-call input survives tab switches and role switches;
+// leaving a draft edit abandons it instead.
+await setRole("u-disp");
+await goTab("new");
+await page.select("#nc-nature", "Flat Tire");
+await page.type("#nc-address", "77 Keep Me Rd, Kingston, PA");
+await page.type("#nc-name", "Keep Me");
+await page.type("#nc-phone", "555-0177");
+await page.type("#nc-notes", "Do not lose me");
+await goTab("calls");
+await sleep(300);
+await goTab("new");
+await sleep(300);
+const kept = await page.evaluate(() => ({
+  nature: document.querySelector("#nc-nature").value,
+  address: document.querySelector("#nc-address").value,
+  name: document.querySelector("#nc-name").value,
+  phone: document.querySelector("#nc-phone").value,
+  notes: document.querySelector("#nc-notes").value,
+}));
+check("19-7c: New-call input survives a tab switch and back", kept.nature === "Flat Tire" && kept.address === "77 Keep Me Rd, Kingston, PA" && kept.name === "Keep Me" && kept.phone === "555-0177" && kept.notes === "Do not lose me", JSON.stringify(kept));
+await setRole("u-coord");
+await sleep(300);
+const kept2 = await page.evaluate(() => ({ address: document.querySelector("#nc-address").value, name: document.querySelector("#nc-name").value }));
+check("19-7c: New-call input survives a role switch too", kept2.address === "77 Keep Me Rd, Kingston, PA" && kept2.name === "Keep Me", JSON.stringify(kept2));
+await page.evaluate(() => { DispatchApp.pendingCall = null; DispatchApp.editingDraftId = null; });
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1044");
+await clickAction("edit-draft", { id: "c3" });
+await sleep(300);
+const editing = await page.evaluate(() => ({ heading: document.querySelector("h1").innerText, editing: DispatchApp.editingDraftId }));
+check("19-7c: Edit draft opens the form in edit mode", /Edit draft INC-1044/.test(editing.heading) && editing.editing === "c3", JSON.stringify(editing));
+await goTab("calls");
+await goTab("new");
+await sleep(300);
+const fresh = await page.evaluate(() => ({ heading: document.querySelector("h1").innerText, editing: DispatchApp.editingDraftId, pending: DispatchApp.pendingCall }));
+check("19-7c: leaving a draft edit abandons it — New call is fresh, not editing", /New call/.test(fresh.heading) && !fresh.editing && !fresh.pending, JSON.stringify(fresh));
+
+// (19-7d) Action-bar segments: all >= 44px in both dimensions, so
+// no change was needed (measured 71–72 x 61).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+const segs = await page.evaluate(() => {
+  const bad = [];
+  document.querySelectorAll(".bar-seg").forEach((s) => { const r = s.getBoundingClientRect(); if (r.width < 44 || r.height < 44) bad.push({ w: Math.round(r.width), h: Math.round(r.height), label: s.innerText.trim().slice(0, 12) }); });
+  return { total: document.querySelectorAll(".bar-seg").length, bad };
+});
+check("19-7d: every card action-bar segment is >= 44px in both dimensions (no change needed)", segs.total > 0 && segs.bad.length === 0, JSON.stringify(segs));
+
+// (19-8) Coverage for items Instinct left untested.
+// Item 7: super admin never sees caller name/phone anywhere.
+await setRole("u-super");
+await goTab("calls");
+const badNames = ["Avi Demo", "Ben Demo", "Chaim Demo", "Dana Demo", "Eli Demo", "555-0101", "555-0102", "555-0103", "555-0104", "555-0105"];
+const superCalls = await page.evaluate(() => document.querySelector("#view").innerText);
+const leakCalls = badNames.filter((n) => superCalls.includes(n));
+check("19-8 (item 7): super admin sees no caller name/phone in the Calls list", leakCalls.length === 0, "leaked: " + leakCalls.join(","));
+await openCard("INC-1043");
+const superDlg = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+const leakDlg = badNames.filter((n) => superDlg.includes(n));
+check("19-8 (item 7): super admin sees no caller name/phone in a call detail", leakDlg.length === 0, "leaked: " + leakDlg.join(","));
+await closeDlg();
+await goTab("contacts");
+const superContacts = await page.evaluate(() => document.querySelector("#view").innerText);
+const leakCon = badNames.filter((n) => superContacts.includes(n));
+check("19-8 (item 7): super admin sees no caller phone in Contacts", leakCon.length === 0, "leaked: " + leakCon.join(","));
+// Item 9: member My history renders — own closed calls listed, and
+// the empty state for a member with none.
+await setRole("u-m2");
+await goTab("history");
+const histM2 = await page.evaluate(() => document.querySelector("#view").innerText);
+check("19-8 (item 9): member My history lists their own closed call (INC-1039, Corrected, caller visible)", histM2.includes("INC-1039") && histM2.includes("Corrected") && histM2.includes("555-0104"), histM2.slice(0, 200));
+await setRole("u-m4");
+await goTab("history");
+const histM4 = await page.evaluate(() => document.querySelector("#view").innerText);
+check("19-8 (item 9): member with no closed calls gets the empty history state", histM4.includes("No closed calls you responded to yet."), histM4.slice(0, 200));
+// Item 32: Manage sections enforce coordinator+/inventory-manager-only
+// access per section.
+await setRole("u-coord");
+await goTab("manage");
+const coordSecs = await page.evaluate(() => document.querySelector("#view").innerText);
+check("19-8 (item 32): coordinator sees all four Manage sections", ["Members", "Call natures", "Saved addresses", "Fleet"].every((s) => coordSecs.includes(s)), coordSecs.slice(0, 200));
+await setRole("u-super");
+await goTab("manage");
+const superSecs = await page.evaluate(() => document.querySelector("#view").innerText);
+check("19-8 (item 32): super admin sees all four Manage sections", ["Members", "Call natures", "Saved addresses", "Fleet"].every((s) => superSecs.includes(s)));
+await setRole("u-m3");
+await goTab("manage");
+const invSecs = await page.evaluate(() => document.querySelector("#view").innerText);
+check("19-8 (item 32): inventory-manager member sees Manage but none of the four sections", !["Members", "Call natures", "Saved addresses", "Fleet"].some((s) => invSecs.includes(s)) && invSecs.includes("You don’t manage any of these."), invSecs.slice(0, 200));
+await setRole("u-disp");
+const dispTabs = await page.evaluate(() => {
+  const prim = [...document.querySelectorAll("#tabs button")].map((b) => b.dataset.tab);
+  return { prim, menu: [...document.querySelectorAll("#menu [data-action='tab']")].map((b) => b.dataset.tab) };
+});
+check("19-8 (item 32): dispatcher has no Manage tab anywhere (primary or menu)", !dispTabs.prim.includes("manage") && !dispTabs.menu.includes("manage"), JSON.stringify(dispTabs));
+// Item 15: 24h banner aging — a 25h-old new-call alert never renders
+// (15f already covers dismiss persistence; this re-verifies aging).
+await page.evaluate(() => {
+  DispatchStore.state.alerts.unshift({ id: "a-s19-old", callId: "c1", kind: "call", urgent: false, text: "S19 OLD ALERT INC-1042", at: new Date(Date.now() - 25 * 3600 * 1000).toISOString() });
+  DispatchStore.save();
+});
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+const oldShown19 = await page.evaluate(() => !document.querySelector("#alert-banner").hidden && document.querySelector("#alert-banner").innerText.includes("S19 OLD ALERT"));
+check("19-8 (item 15): a 25h-old new-call alert never renders in the banner", !oldShown19);
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 

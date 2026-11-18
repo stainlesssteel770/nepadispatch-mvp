@@ -19,7 +19,9 @@ Card colors 2026-11-17 (same day): the owner's decision on the open question —
 Navigation + undo + banner 2026-11-17 (same day, evening): Instinct's rerun of the live v=20261117-colors prototype (phone-size desktop Chrome, fake data only) re-verified all previous fixes and raised four new items — app-first navigation (first screen was ~480/844px of chrome), one-tap Correct with no undo, the Decided table still 585px wide, and announcement entries that never aged out. PUSHED 2026-11-17 (commit c5f0e46f) and live-verified — live app.js and styles.css byte-match local (md5), index.html serves ?v=20261117-nav. See "Navigation + undo + banner — 2026-11-17" below.
 Rerun #4 fixes 2026-11-17 (same day, evening): Instinct's rerun #4 of the live v=20261117-nav prototype (phone-size desktop Chrome, fake data only) re-verified the nav rebuild, banner dismiss, Decided table, Correct Undo, unassign two-tap, equipment-blocked close and Manage explanations, and raised four new items — fake-filled nature field, outcome codes without spaces, silent Add-equipment, member can't see own privacy-request status. PUSHED 2026-11-17 (commit 528a63e2) and live-verified — live app.js and styles.css byte-match local (md5), `outcomeLabel` + `Choose a call nature` present. See "Rerun #4 fixes — 2026-11-17" below.
 Draft vs completed card style 2026-11-17 (same day, evening): owner's production screenshot — draft cards go muted gray with a plain gray side strip, closed cards go blue with a bright blue side strip carrying the town vertically; responder pills show unit codes (new optional `unit` field, e.g. PA-01); PRIVACY REVERSAL — members who responded to a call CAN see its caller on the closed call. PUSHED 2026-11-17 (commit ab8ba16f) and live-verified — live app.js and styles.css byte-match local (md5). 124/124 smoke checks. See "Draft vs completed card style — 2026-11-17" below.
-Confirm toast + respond on card 2026-11-17 (same day, evening): owner-approved answers to the open questions — the checkmark no longer closes instantly, it pops a toast asking Corrected / Not corrected / Cancelled (× or tap elsewhere dismisses); members get an inline ETA input + Respond button right on the open call card. **NOT YET PUSHED — parent pushes after verifying.** Asset version bumped to `?v=20261117-batchb`. 142/142 smoke checks. See "Confirm toast + respond on card — 2026-11-17" below.
+Confirm toast + respond on card 2026-11-17 (same day, evening): owner-approved answers to the open questions — the checkmark no longer closes instantly, it pops a toast asking Corrected / Not corrected / Cancelled (× or tap elsewhere dismisses); members get an inline ETA input + Respond button right on the open call card. PUSHED 2026-11-17 (commit 37a5b1ec) and live-verified — live app.js and styles.css byte-match local (md5). 142/142 smoke checks. See "Confirm toast + respond on card — 2026-11-17" below.
+
+Pass 5 fixes 2026-11-17 (same day, evening): Instinct pass 5 on the live v=20261117-batchb prototype (phone-size desktop Chrome, fake data only, 41 items) — headline: member Home was ~3 screens tall, drafts visible to members, privacy requests gave no feedback on the call detail, stale closed-call copy, urgent banner went stale after close, and all 7 seed members showed no unit code on devices with pre-unit stored state; plus contrast, phone-link and new-call-preservation polish, and smoke coverage for the four items Instinct left untested. NOT PUSHED yet — parent verifies and pushes; `?v=20261117-pass5`, 183/183 smoke checks. See "Pass 5 fixes — 2026-11-17" below.
 
 ## Architecture
 
@@ -1007,5 +1009,139 @@ verify with a curl instead.
 ### Asset version
 
 `index.html` asset version bumped `?v=20261117-draftclosed` →
-`?v=20261117-batchb` (styles.css, seed.js, app.js). **NOT YET PUSHED —
-parent pushes after verifying.**
+`?v=20261117-batchb` (styles.css, seed.js, app.js). PUSHED 2026-11-17 (commit 37a5b1ec) and live-verified — live app.js and styles.css byte-match local (md5).
+
+## Pass 5 fixes — 2026-11-17
+
+Instinct pass 5 (same day, evening, build v=20261117-batchb, desktop
+Chrome 390×844, fake data only; matrix at
+https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings
+— requires sign-in, not fetchable, worked from the detailed findings
+summary). 41 items; the fix batch covers items 1–8 plus coverage for
+the four items Instinct left untested. NOT PUSHED yet — the parent
+agent verifies and pushes.
+
+- (M2 / item 31) MEMBER HOME IS ONE SCREEN NOW. Member Home was
+  ~3 screens tall (measured: u-m4 1530px, u-m2 1767px scrollHeight at
+  390×844). Restructured to compact one-line rows (incident — nature,
+  then address/status, one tap opens the call) instead of full cards,
+  capped at 2 rows per section with the count + an inline "View all N
+  →" link in the section heading for the rest (the link rides inside
+  the heading so it costs no extra vertical space). The "Signed in
+  as" line is dropped (identity is already in the header role
+  switcher); the backup-needed signal folds into the row meta
+  ("BACKUP" beside the ETA / URGENT) instead of a separate attention
+  strip; section headings and row padding tightened. Measured after:
+  u-m4 seed 588px body height, u-m2 seed fits, and a synthetic worst
+  case (3 own calls + 3 privacy requests + 3 open calls needing a
+  response) fits at document scrollHeight 844 with 6 rows + 3 "View
+  all 3 →" links. Full cards — and the inline respond control — stay
+  on the Calls tab; other roles keep the full-card home. Section 1
+  of the smoke suite needed one line changed (it opened a card from
+  the member Home tab; it now goes to Calls first).
+- (D1 / item 11) DRAFTS HIDDEN FROM MEMBERS. `viewCalls` filters
+  drafts out for the member role (heading reads "Open" instead of
+  "Open & drafts"); the member Home attention/need lists only ever
+  contained open calls, and the Data Calls count is role-aware
+  (member: 4 of 5). Opening a draft by id is also refused for a
+  member (click + keyboard paths) with an inline error. Dispatcher /
+  coordinator / super admin visibility unchanged.
+- (M1 / item 6) PRIVACY REQUEST FEEDBACK ON THE DETAIL. After a
+  member requests caller access, the open dialog now re-renders
+  immediately so the "Your request — Pending dispatcher approval"
+  row is visible right away, and the "Request sent" toast fires.
+  (Caveat: the toast is a fixed div; while the native `<dialog>` is
+  open it sits behind the dialog's top layer and becomes visible
+  when the dialog closes. The re-rendered detail is the primary
+  feedback and is visible at once.)
+- (M3) STALE CLOSED-CALL COPY FIXED. The detail's closed-call line
+  said past responders "can no longer see" the caller — the opposite
+  of the owner's reversal. Now: "members who responded to this call
+  can still see it." The My history intro was stale the same way
+  ("unless you have an approved grant") and now reads "unless you
+  responded to the call or have an approved grant." Behavior was
+  already correct; only wording changed.
+- (D2) URGENT BANNER GOES STALE — FIXED. `closeCall` now prunes
+  ALL alerts for the closed call (it used to clear only backup
+  alerts), and the banner's render filter requires a "call" alert's
+  call to still be open. Closing urgent INC-1043 removes it from
+  the banner (verified: banner drops from "INC-1042 +1 more" to
+  just INC-1042, and no stored alert for c2 remains).
+- (item 22 note) UNIT-CODE MIGRATION. `backfillSeedUnits` runs on
+  `Store.load()` and on `importJSON()`: when a stored member record
+  for a known seed id has no `unit` property, it is backfilled
+  (u-coord PA-01, u-disp PA-02, u-m1 PA-05, u-m2 PA-09, u-m3 PA-19,
+  u-m4 PA-21). A stored empty string is a deliberate blank and is
+  left alone; owner-entered members are untouched. This fixes the
+  owner's own phone, which had the same stale stored state.
+  Verified by simulating pre-unit stored state, reloading, and
+  seeing PA-05 pills on INC-1042.
+- (7a) CONTRAST — all above 4.5:1 now (computed in-page, WCAG
+  luminance with ancestor backgrounds composited). DRAFT badge
+  3.06 → 5.98 (`#8a94a6` → `#5a6474`); CLOSED badge 3.43 → 5.36
+  (`var(--green)` → `var(--green-dark)` `#157a4a`); bar-seg labels
+  incl. Maps: covered 6.85, urgent 6.13, draft 7.84
+  (`var(--card-mute)` → `#c3ccd9`, draft bar-seg `#8a94a6` →
+  `#c3ccd9`); draft dim text 7.28 (`#8a94a6` → `#b9bfc9`, draft
+  pill.dim likewise). The draft pin/icon/chevron stay `#8a94a6`
+  (icons, 3:1 non-text criterion; section 17a asserts the pin
+  colour). The unused `.badge.open` (exactly 4.50) was left alone.
+- (7b) PHONE LINKS ≥44px. Inline `tel:` links in card rows,
+  dialog kv lists and table cells are now `inline-block` with
+  `min-height: 44px; line-height: 44px; white-space: nowrap` (the
+  nowrap matters: "555-0001" was wrapping to two lines in the
+  narrow Contacts phone column, measuring 88px). Measured after:
+  card caller rows 44px, Contacts links 44px. The bar-seg Call
+  links are untouched by the rule (already 58px+ flex segments).
+- (7c) NEW-CALL INPUT SURVIVES TAB SWITCHES. New
+  `captureNewCallDraft()` helper: leaving the New call tab (or
+  switching roles) captures the typed form values into
+  `App.pendingCall`, and returning prefills them (the existing
+  prefill in `viewNewCall`). Two deliberate exceptions: leaving a
+  draft edit abandons it (a manual trip to New call must never
+  silently keep editing a draft), and leaving while the Review
+  summary is showing abandons the review (fresh form on return —
+  the old rule; section 16-1 depends on it, and the first version
+  of this capture broke it by preserving the reviewed values).
+- (7d) ACTION BAR — NO CHANGE NEEDED. All segments measure
+  71–72 × 61 CSS px, already ≥44px in both dimensions. Asserted by
+  a smoke check instead.
+- (8) COVERAGE FOR UNTESTED ITEMS — all verified, no UI change
+  needed: item 7 — super admin sees no caller name/phone in the
+  Calls list, a call detail, or Contacts (checked against all five
+  seed caller names/numbers); item 9 — member My history renders
+  (u-m2: INC-1039, Corrected, caller visible; u-m4: "No closed
+  calls you responded to yet."); item 32 — Manage sections enforce
+  per-section access (coordinator and super admin see all four;
+  inventory-manager member u-m3 sees the Manage tab but none of
+  the four sections; dispatcher has no Manage tab in primaries or
+  menu); item 15 — 24h banner aging re-verified with a seeded
+  25h-old alert (never renders; 15f already covered dismiss
+  persistence).
+- NOT BUILT (per the task): urgent sound/vibration or alert
+  delivery (no real notifications in this static prototype); CSV
+  export contents (already covered by blob-override checks);
+  grant durations other than 15 min (same code path); a loan
+  due/overdue marker — loans carry no due date in the model
+  (`{id, itemId, callId, borrower, loanAgreed, status, createdAt}`),
+  so the feature was not invented.
+
+Smoke suite section 19 added (41 new checks): member Home fits one
+viewport (seed u-m4/u-m2 + 3+3+3 stress + View-all navigation + row
+opens call); drafts hidden from members in Calls/Home/counts,
+visible to dispatchers; request re-renders detail with pending state
++ toast; stale wording gone from source and rendered copy; banner
+drops a closed urgent call + stored alerts pruned; migration from
+simulated pre-unit state via load and via importJSON + blank-unit
+rule; contrast ratios computed in-page; tel: heights on Calls and
+Contacts; new-call preservation across tab and role switches +
+draft-edit abandonment; action-bar segments ≥44; super-admin
+caller hiding; My history renders + empty state; Manage per-section
+enforcement; 24h banner aging. Full suite: **183/183 passed**
+(was 142/142).
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261117-batchb` →
+`?v=20261117-pass5` (styles.css, seed.js, app.js). NOT PUSHED yet —
+parent verifies and pushes.

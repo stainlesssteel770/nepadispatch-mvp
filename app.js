@@ -192,6 +192,20 @@ function freshSeed() {
 }
 
 /* ---------------- Store ---------------- */
+// Unit codes for the known seed members (seed.js). Used by the
+// load-time migration for stored state saved before the unit field
+// existed (pass 5): a stored record with NO `unit` property at all
+// gets its seed code; a stored empty string (deliberately cleared)
+// is left alone, and owner-entered members (other ids) are never
+// touched. Returns true when anything changed.
+var SEED_UNITS = { "u-coord": "PA-01", "u-disp": "PA-02", "u-m1": "PA-05", "u-m2": "PA-09", "u-m3": "PA-19", "u-m4": "PA-21" };
+function backfillSeedUnits(state) {
+  var changed = false;
+  (state.users || []).forEach(function (u) {
+    if (u.unit === undefined && SEED_UNITS[u.id]) { u.unit = SEED_UNITS[u.id]; changed = true; }
+  });
+  return changed;
+}
 var Store = {
   state: null,
   load: function () {
@@ -209,6 +223,11 @@ var Store = {
           var c = self.call(a.callId);
           return c && c.status === "open" && c.backupNeeded;
         });
+        // Backfill unit codes for seed members whose stored records
+        // predate the unit field (pass 5): a stored record with NO
+        // `unit` property gets its seed code; a stored empty string
+        // (deliberately cleared) is left alone.
+        if (backfillSeedUnits(this.state)) this.save();
         return;
       }
     } catch (e) { /* corrupted storage: fall through to seed */ }
@@ -241,6 +260,7 @@ var Store = {
       data.currentUserId = data.users.length ? data.users[0].id : "u-disp";
     }
     data.usedKeys = data.usedKeys || [];
+    backfillSeedUnits(data); // same pre-unit migration as Store.load
     this.state = data; this.save();
     return { ok: true };
   },
@@ -422,8 +442,10 @@ var Store = {
       return { ok: false, error: "Equipment must be returned before closing: " + names };
     }
     c.status = "closed"; c.outcome = outcome; c.closedAt = nowISO(); c.backupNeeded = false;
-    // Closing also clears any backup alert for this call.
-    this.state.alerts = this.state.alerts.filter(function (a) { return !(a.kind === "backup" && a.callId === callId); });
+    // Closing clears the call's alerts: its backup alert AND its
+    // new-call notification — the banner must never keep surfacing a
+    // call that is already closed (D2, pass 5).
+    this.state.alerts = this.state.alerts.filter(function (a) { return a.callId !== callId; });
     this.log(c.incident + " closed as " + outcomeLabel(outcome) + " by " + this.me().name); this.save();
     return { ok: true };
   },
@@ -835,7 +857,13 @@ function render() {
   else {
     var visible = Store.state.alerts.filter(function (a) {
       if (dismissed.indexOf(a.id) !== -1) return false;
-      if (a.kind === "call" && Date.now() - new Date(a.at).getTime() > DAY) return false;
+      if (a.kind === "call") {
+        if (Date.now() - new Date(a.at).getTime() > DAY) return false;
+        // A new-call alert is a live claim about an open call: once
+        // the call closes, the alert must stop surfacing (D2, pass 5).
+        var cc = Store.call(a.callId);
+        return cc && cc.status === "open";
+      }
       if (a.kind !== "backup") return true;
       var c = Store.call(a.callId);
       return c && c.status === "open" && c.backupNeeded;
@@ -855,12 +883,76 @@ function render() {
   v.innerHTML = fn();
 }
 
+// Member Home is ONE screen (decided, pass 5 M2): compact one-line
+// rows instead of full cards, capped at 2 per section with a count +
+// "View all N in Calls" link in the section heading for the rest.
+// The backup-needed signal folds into the row meta (no separate
+// attention strip — the same call is already a row). Full cards —
+// and the inline respond control — stay on the Calls tab. Other
+// roles keep the full-card home below. The signed-in line is dropped
+// here: identity is already in the header role switcher.
+function homeRow(c, meta, metaCls) {
+  return '<button type="button" class="home-row" data-action="open-call" data-id="' + c.id + '">' +
+    '<span class="home-row-text"><strong>' + esc(c.incident) + " — " + esc(c.nature) + "</strong>" +
+    '<span class="muted">' + esc(c.address) + "</span></span>" +
+    (meta ? '<span class="home-row-meta' + (metaCls ? " " + metaCls : "") + '">' + esc(meta) + "</span>" : "") +
+    '<span class="home-row-chev" aria-hidden="true">›</span></button>';
+}
+function homeReqRow(r) {
+  var rc = Store.call(r.callId);
+  var st;
+  if (r.status === "pending") st = "Pending dispatcher approval";
+  else if (r.status === "approved") {
+    st = (r.expiresAt && new Date(r.expiresAt).getTime() <= Date.now())
+      ? "Approved — grant expired " + fmtDT(r.expiresAt)
+      : "Approved" + (r.expiresAt ? " until " + fmtDT(r.expiresAt) : " (forever)");
+  } else st = "Denied by a dispatcher";
+  return '<button type="button" class="home-row" data-action="open-call" data-id="' + r.callId + '">' +
+    '<span class="home-row-text"><strong>' + esc(rc ? rc.incident : r.callId) + (rc ? " — " + esc(rc.nature) : "") + "</strong>" +
+    '<span class="muted">Fields: ' + esc(r.fields.join(", ")) + " · " + esc(st) + "</span></span>" +
+    '<span class="home-row-chev" aria-hidden="true">›</span></button>';
+}
+// Section heading with the count and, when capped, a one-tap link to
+// the full list. The link rides inside the heading so it costs no
+// extra vertical space — the one-screen budget has none to spare.
+function homeHead(title, total, shown) {
+  var h = "<h2><span>" + title + (total ? " · " + total : "") + "</span>";
+  if (total > shown) h += '<button type="button" class="home-viewall" data-action="tab" data-tab="calls">View all ' + total + " →</button>";
+  return h + "</h2>";
+}
+function viewHomeMember(me, mine, needMe, backup) {
+  var myReqs = Store.state.hiddenRequests.filter(function (r) { return r.requesterId === me.id; });
+  var h = '<div class="home-compact"><h1>What needs my attention</h1>';
+  h += homeHead("My calls right now", mine.length, 2);
+  if (mine.length) {
+    h += mine.slice(0, 2).map(function (c) {
+      var r = c.responders.find(function (x) { return x.userId === me.id; });
+      var meta = r ? "ETA " + r.eta : "";
+      if (c.backupNeeded) meta += (meta ? " · " : "") + "BACKUP";
+      return homeRow(c, meta, c.backupNeeded ? "backup" : "");
+    }).join("");
+  } else h += "<p>You are not responding to any call right now.</p>";
+  if (myReqs.length) {
+    h += homeHead("My privacy requests", myReqs.length, 2) + myReqs.slice(0, 2).map(homeReqRow).join("");
+  }
+  h += homeHead("Open calls needing a response", needMe.length, 2);
+  if (needMe.length) {
+    h += needMe.slice(0, 2).map(function (c) {
+      var meta = c.urgent ? "URGENT" : "";
+      if (c.backupNeeded) meta += (meta ? " · " : "") + "BACKUP";
+      return homeRow(c, meta, c.urgent ? "urgent" : (c.backupNeeded ? "backup" : ""));
+    }).join("");
+  } else h += "<p>No open calls need a response right now.</p>";
+  return h + "</div>";
+}
+
 function viewHome() {
   var me = Store.me();
   var open = Store.state.calls.filter(function (c) { return c.status === "open"; });
   var mine = open.filter(function (c) { return Store.isResponding(c, me.id); });
   var needMe = open.filter(function (c) { return !Store.isResponding(c, me.id); });
   var backup = open.filter(function (c) { return c.backupNeeded; });
+  if (me.role === "member") return viewHomeMember(me, mine, needMe, backup);
   var h = "<h1>What needs my attention</h1>";
   h += '<p class="muted">Signed in as <strong>' + esc(me.name) + "</strong> (" + roleLabel(me.role) + (me.inventoryManager ? " + inventory manager" : "") + ").</p>";
   if (backup.length) h += '<div class="attention"><strong>Backup needed:</strong> ' + backup.map(function (c) { return esc(c.incident) + " — " + esc(c.nature); }).join("; ") + "</div>";
@@ -897,9 +989,12 @@ function viewHome() {
 
 function viewCalls() {
   var h = "<h1>Calls</h1><p class=\"muted\">List only — no map view in this version.</p>";
-  var open = Store.state.calls.filter(function (c) { return c.status !== "closed"; });
+  // Drafts are dispatcher+ only (decided, D1 pass 5): members never
+  // see them — not in this list, not in counts, not anywhere.
+  var isMember = Store.me().role === "member";
+  var open = Store.state.calls.filter(function (c) { return isMember ? c.status === "open" : c.status !== "closed"; });
   var closed = Store.state.calls.filter(function (c) { return c.status === "closed"; });
-  h += "<h2>Open &amp; drafts</h2>" + (open.length ? open.map(callCard).join("") : "<p>No open calls.</p>");
+  h += "<h2>" + (isMember ? "Open" : "Open &amp; drafts") + "</h2>" + (open.length ? open.map(callCard).join("") : "<p>No open calls.</p>");
   h += "<h2>Closed</h2>" + (closed.length ? closed.map(callCard).join("") : "<p>No closed calls yet.</p>");
   return h;
 }
@@ -1022,7 +1117,9 @@ function callDetailHTML(c) {
   if (canSee) {
     h += "<dt>Caller</dt><dd>" + esc(c.callerName) + " — <a href=\"tel:" + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + "\">" + esc(c.callerPhone) + "</a> (tap to call back)</dd>";
   } else if (c.status === "closed") {
-    h += "<dt>Caller</dt><dd class=\"muted\">Hidden after close. Request caller name + phone from a dispatcher (approval needed) — past responders can no longer see it either.</dd>";
+    // Responders CAN still see the caller on a closed call (owner
+    // reversal 2026-11-17); only non-responders need a grant.
+    h += "<dt>Caller</dt><dd class=\"muted\">Hidden after close. Request caller name + phone from a dispatcher (approval needed) — members who responded to this call can still see it.</dd>";
   } else {
     h += "<dt>Caller</dt><dd class=\"muted\">Hidden. Visible only while you are responding to this call, or with an approved grant.</dd>";
   }
@@ -1203,7 +1300,7 @@ function viewRequests() {
 function viewHistory() {
   var me = Store.me();
   var mine = Store.state.calls.filter(function (c) { return c.status === "closed" && Store.isResponding(c, me.id); });
-  var h = "<h1>My call history</h1><p class=\"muted\">Your own past calls. Caller name and number stay hidden after close unless you have an approved grant.</p>";
+  var h = "<h1>My call history</h1><p class=\"muted\">Your own past calls. Caller name and number stay hidden after close unless you responded to the call or have an approved grant.</p>";
   h += mine.length ? mine.map(function (c) {
     return '<article class="card"><h3>' + esc(c.incident) + " — " + esc(c.nature) + "</h3>" +
       "<dl class=\"kv\"><dt>Date</dt><dd>" + fmtDT(c.closedAt) + "</dd><dt>Outcome</dt><dd>" + esc(outcomeLabel(c.outcome)) + "</dd>" +
@@ -1273,7 +1370,7 @@ function viewData() {
         '<button class="btn danger" data-action="data-clear">Clear all my data (blank slate — calls, equipment, addresses, fleet, loans and requests all gone; members stay so you can sign in)</button>'
       : '<p class="muted">Reset, clear and import need a coordinator or super admin.</p>') +
     "<h2>What’s stored right now</h2><dl class=\"kv\">" +
-    "<dt>Calls</dt><dd>" + Store.state.calls.length + "</dd><dt>Members</dt><dd>" + Store.state.users.length + "</dd>" +
+    "<dt>Calls</dt><dd>" + (me.role === "member" ? Store.state.calls.filter(function (c) { return c.status !== "draft"; }).length : Store.state.calls.length) + "</dd><dt>Members</dt><dd>" + Store.state.users.length + "</dd>" +
     "<dt>Call natures</dt><dd>" + Store.state.callNatures.length + "</dd><dt>Saved addresses</dt><dd>" + Store.state.savedAddresses.length + "</dd>" +
     "<dt>Equipment items</dt><dd>" + Store.state.equipment.length + "</dd><dt>Vehicles</dt><dd>" + Store.state.fleet.length + "</dd>" +
     "<dt>Loans</dt><dd>" + Store.state.loans.length + "</dd></dl>";
@@ -1304,6 +1401,34 @@ function equipFormHTML(it) {
     '<label>Kind <select name="kind"><option value="call-only"' + (it.kind === "call-only" ? " selected" : "") + '>Call-only</option><option value="loan-only"' + (it.kind === "loan-only" ? " selected" : "") + '>Loan-only</option></select></label>' +
     '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
     '<div><button class="btn" type="submit">Save item</button> <button class="btn secondary" type="button" data-action="close-dialog">Cancel</button></div></form>';
+}
+
+// Preserve an in-progress New call form across tab switches (and role
+// switches, which also re-render): capture the typed values into
+// App.pendingCall when leaving the tab, so returning prefills them
+// (viewNewCall already prefills from pendingCall). A draft edit is
+// abandoned instead — a manual trip to New call must never silently
+// keep editing a draft.
+function captureNewCallDraft() {
+  if (App.tab !== "new") return;
+  if (App.editingDraftId) { App.editingDraftId = null; App.pendingCall = null; return; }
+  // The Review summary is showing (submit set idemKey; only confirm
+  // or Back-to-edit clears it): leaving now abandons the review, and
+  // a manual trip back to New call starts a fresh form — the old rule
+  // (16-1 depends on it). Only an in-progress FORM is preserved.
+  if (App.idemKey) { App.pendingCall = null; App.idemKey = null; return; }
+  var f = document.querySelector("#new-call-form");
+  if (!f) return;
+  var fd = new FormData(f);
+  var data = {
+    nature: fd.get("nature") || "", address: (fd.get("address") || "").trim(), vehicle: (fd.get("vehicle") || "").trim(),
+    callerName: (fd.get("callerName") || "").trim(), callerPhone: (fd.get("callerPhone") || "").trim(),
+    notes: (fd.get("notes") || "").trim(), coordinates: (fd.get("coordinates") || "").trim(),
+    mapsLink: (fd.get("mapsLink") || "").trim(), alertKind: fd.get("alertKind") || "normal",
+    saveAddress: !!document.querySelector("#nc-save-addr") && document.querySelector("#nc-save-addr").checked
+  };
+  var hasAny = ["nature", "address", "vehicle", "callerName", "callerPhone", "notes", "coordinates", "mapsLink"].some(function (k) { return data[k]; });
+  App.pendingCall = hasAny ? data : null;
 }
 
 /* ----- events ----- */
@@ -1339,13 +1464,20 @@ document.addEventListener("click", function (e) {
     }
     case "tab":
       closeMenu();
+      // Leaving the New call tab preserves what was typed (a draft
+      // edit is abandoned instead — a manual trip to New call must
+      // never silently keep editing a draft). Also covers re-tapping
+      // the New call tab while on it.
+      if (App.tab === "new") captureNewCallDraft();
       App.tab = el.dataset.tab;
-      // A manual trip to New call starts a fresh form — it must not
-      // silently keep editing a draft (edit-draft sets App.tab directly).
-      if (App.tab === "new") { App.editingDraftId = null; App.pendingCall = null; }
       render(); break;
     case "close-dialog": closeDialog(); break;
-    case "open-call": c = Store.call(id); if (c) openDialog(callDetailHTML(c)); break;
+    case "open-call": c = Store.call(id); if (c) {
+      // Drafts are dispatcher+ only (D1): a member must never open
+      // one, even if its id is reached some other way.
+      if (c.status === "draft" && Store.me().role === "member") { showError("Drafts are only visible to dispatchers and coordinators."); break; }
+      openDialog(callDetailHTML(c));
+    } break;
     case "add-member": c = Store.call(id); if (c && Store.can("assign")) openDialog(assignPickerHTML(c)); break;
     case "assign-member": r = Store.assign(id, el.dataset.user); if (r.ok) toast("Member assigned to the call."); else showError(r.error); render(); if (r.ok) { c = Store.call(id); if (c) openDialog(assignPickerHTML(c)); } break;
     case "interstate": toast("Interstate button is a placeholder in this prototype — it sends nothing."); break;
@@ -1397,8 +1529,13 @@ document.addEventListener("click", function (e) {
       break;
     }
     case "card-respond": respondFromCard(id); break;
-    case "request-callback": r = Store.requestHidden(id, ["phone"]); if (r.ok) toast("Request sent — a dispatcher must approve it."); else showError(r.error); break;
-    case "request-hidden": r = Store.requestHidden(id, ["name", "phone"]); if (r.ok) toast("Request sent — a dispatcher must approve it."); else showError(r.error); break;
+    // After a request, the open dialog re-renders so the member sees
+    // their pending state right away (the "Your request" row) — plus
+    // the toast. Without the re-render the detail showed nothing
+    // (M1, pass 5): the button looked unchanged and the toast sat
+    // behind the dialog overlay.
+    case "request-callback": r = Store.requestHidden(id, ["phone"]); if (r.ok) { toast("Request sent — a dispatcher must approve it."); c = Store.call(id); if (c && $("#dlg").open) openDialog(callDetailHTML(c)); } else showError(r.error); break;
+    case "request-hidden": r = Store.requestHidden(id, ["name", "phone"]); if (r.ok) { toast("Request sent — a dispatcher must approve it."); c = Store.call(id); if (c && $("#dlg").open) openDialog(callDetailHTML(c)); } else showError(r.error); break;
     case "approve-request": {
       var dur = $("#dur-" + id); var mins = dur && dur.value ? parseInt(dur.value, 10) : null;
       r = Store.approveHidden(id, mins); if (r.ok) toast("Request approved."); else toastErr(r.error); render(); break;
@@ -1502,7 +1639,7 @@ document.addEventListener("keydown", function (e) {
   if ((e.key !== "Enter" && e.key !== " ") || !e.target.classList || !e.target.classList.contains("call-card")) return;
   e.preventDefault();
   var c = Store.call(e.target.dataset.id);
-  if (c) openDialog(callDetailHTML(c));
+  if (c && !(c.status === "draft" && Store.me().role === "member")) openDialog(callDetailHTML(c));
 });
 
 /* ----- forms ----- */
@@ -1611,6 +1748,7 @@ document.addEventListener("click", function (e) {
 // it; only the Undo button inside a toast is tappable. Toasts hide
 // on their timer (3.5s, 8s for errors).
 $("#role-switch").addEventListener("change", function (e) {
+  captureNewCallDraft(); // keep typed New-call values across the re-render
   Store.state.currentUserId = e.target.value; Store.save(); render();
 });
 $("#reset-demo").addEventListener("click", function () {
