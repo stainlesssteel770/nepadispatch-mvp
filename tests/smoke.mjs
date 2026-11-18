@@ -240,9 +240,13 @@ await sleep(400);
 const persistOk = await page.evaluate(() => DispatchStore.state.calls.length === 5);
 check("state persists across reload", persistOk);
 
-// 11. One-tap Correct button (state is fresh seed again: c1 open with
-// equipment out, c2 open with nothing out; signed in as dispatcher)
-// (a) open call with no equipment out -> closed as Corrected, one tap
+// 11. Correct button with confirm step (state is fresh seed again:
+// c1 open with equipment out, c2 open with nothing out; signed in
+// as dispatcher). Tapping Correct now pops a toast asking which
+// outcome — Corrected / Not corrected / Cancelled — instead of
+// closing instantly.
+// (a) open call with no equipment out -> choices toast, call stays
+// open until one is picked
 await setRole("u-disp");
 await goTab("calls");
 const correctVisible = await page.evaluate(() => [...document.querySelectorAll('[data-action="correct-call"]')].length);
@@ -252,15 +256,32 @@ await page.evaluate(() => {
   cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
 });
 await sleep(400);
+const choicesShown = await page.evaluate(() => {
+  const tEl = document.querySelector("#toast");
+  return {
+    hidden: tEl.hidden,
+    choices: [...tEl.querySelectorAll(".toast-choice")].map((b) => b.innerText),
+    hasX: !!tEl.querySelector(".toast-x"),
+    stillOpen: DispatchStore.call("c2").status === "open",
+  };
+});
+check("Correct tap shows the 3-choice confirm toast and does NOT close immediately", !choicesShown.hidden && choicesShown.choices.join("|") === "Corrected|Not corrected|Cancelled" && choicesShown.hasX && choicesShown.stillOpen, JSON.stringify(choicesShown));
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
+await sleep(400);
 const correctOk = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "closed" && c.outcome === "Corrected"; });
-check("one tap Correct closes call as Corrected", correctOk);
+check("picking Corrected in the toast closes the call as Corrected", correctOk);
 t = await page.evaluate(() => document.querySelector("#toast").innerText);
-check("Correct confirmation shown", /closed as Corrected/.test(t), t);
+const undoAfterPick = await page.evaluate(() => !!document.querySelector("#toast .toast-undo"));
+check("Correct confirmation shown with Undo", /closed as Corrected/.test(t) && undoAfterPick, t);
 // (b) call with equipment out stays open with the return-equipment message
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="correct-call"]').click();
 });
+await sleep(400);
+const eqChoices = await page.evaluate(() => !document.querySelector("#toast").hidden && [...document.querySelectorAll("#toast .toast-choice")].length === 3);
+check("Correct on equipment-out call still asks first (choices toast)", eqChoices);
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
 await sleep(400);
 t = await page.evaluate(() => document.querySelector("#toast").innerText);
 const stillOpen = await page.evaluate(() => DispatchStore.call("c1").status === "open");
@@ -718,19 +739,27 @@ await page.evaluate(() => window.scrollTo(0, 0)); await sleep(200);
 const firstTop = await page.evaluate(() => { const c = document.querySelector(".call-card"); return c ? Math.round(c.getBoundingClientRect().top) : null; });
 check("15c: first call card top is within the first screen (<500px)", firstTop !== null && firstTop < 500, "firstCardTop=" + firstTop);
 
-// (15d) One-tap Correct shows a real Undo button; Undo restores the call
+// (15d) Correct confirm toast: tap asks first, picking Corrected
+// closes and shows a real Undo button; Undo restores the call
 await goTab("calls");
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
 });
 await sleep(400);
+const choicesInfo = await page.evaluate(() => {
+  const tEl = document.querySelector("#toast");
+  return { hidden: tEl.hidden, choices: [...tEl.querySelectorAll(".toast-choice")].map((b) => b.innerText), stillOpen: DispatchStore.call("c2").status === "open" };
+});
+check("15d: Correct tap shows the confirm toast and the call stays open", !choicesInfo.hidden && choicesInfo.choices.join("|") === "Corrected|Not corrected|Cancelled" && choicesInfo.stillOpen, JSON.stringify(choicesInfo));
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
+await sleep(400);
 const undoInfo = await page.evaluate(() => {
   const tEl = document.querySelector("#toast");
   const c = DispatchStore.call("c2");
   return { toastHidden: tEl.hidden, hasUndo: !!tEl.querySelector(".toast-undo"), closed: c.status === "closed" && c.outcome === "Corrected" };
 });
-check("15d: one-tap Correct closes call and shows a real Undo button", !undoInfo.toastHidden && undoInfo.hasUndo && undoInfo.closed, JSON.stringify(undoInfo));
+check("15d: picking Corrected closes the call and shows a real Undo button", !undoInfo.toastHidden && undoInfo.hasUndo && undoInfo.closed, JSON.stringify(undoInfo));
 await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
 await sleep(400);
 const undone = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "open" && c.outcome === null; });
@@ -740,6 +769,8 @@ await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
 });
+await sleep(400);
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
 await sleep(400);
 await page.evaluate(() => { document.querySelector("h1").click(); });
 await sleep(200);
@@ -1066,6 +1097,172 @@ check("17f: responder sees caller name+phone on the closed card", ct.includes("5
 await setRole("u-m4");
 ct = await cardText("INC-1039");
 check("17f: non-responder still sees the hidden line on the closed card", !ct.includes("555-0104") && !ct.includes("Dana Demo") && ct.includes("Caller hidden after close"), ct.slice(0, 200));
+
+// 18. Correct confirm toast + respond on the card (owner-approved,
+// Nov 17 evening).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" });
+await sleep(400);
+await setRole("u-disp");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
+await goTab("calls");
+
+// (18a) Correct tap shows the 3-choice toast; × dismisses it, call stays open.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+let toastInfo = await page.evaluate(() => {
+  const tEl = document.querySelector("#toast");
+  return { hidden: tEl.hidden, choices: [...tEl.querySelectorAll(".toast-choice")].map((b) => b.innerText), hasX: !!tEl.querySelector(".toast-x"), stillOpen: DispatchStore.call("c2").status === "open" };
+});
+check("18a: Correct tap shows Corrected / Not corrected / Cancelled + ×, call stays open", !toastInfo.hidden && toastInfo.choices.join("|") === "Corrected|Not corrected|Cancelled" && toastInfo.hasX && toastInfo.stillOpen, JSON.stringify(toastInfo));
+await page.evaluate(() => { document.querySelector("#toast .toast-x").click(); });
+await sleep(300);
+toastInfo = await page.evaluate(() => ({ hidden: document.querySelector("#toast").hidden, stillOpen: DispatchStore.call("c2").status === "open" }));
+check("18a: × dismisses the confirm toast without closing the call", toastInfo.hidden && toastInfo.stillOpen, JSON.stringify(toastInfo));
+
+// (18b) A tap elsewhere also dismisses the confirm toast, call stays open.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { document.querySelector("h1").click(); });
+await sleep(300);
+toastInfo = await page.evaluate(() => ({ hidden: document.querySelector("#toast").hidden, stillOpen: DispatchStore.call("c2").status === "open" }));
+check("18b: tap elsewhere dismisses the confirm toast without closing the call", toastInfo.hidden && toastInfo.stillOpen, JSON.stringify(toastInfo));
+
+// (18c) Each choice closes with its own outcome; Undo still follows.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Not corrected").click(); });
+await sleep(400);
+let nc = await page.evaluate(() => { const c = DispatchStore.call("c2"); return { closed: c.status === "closed" && c.outcome === "NotCorrected", undo: !!document.querySelector("#toast .toast-undo") }; });
+check("18c: picking 'Not corrected' closes as NotCorrected with Undo", nc.closed && nc.undo, JSON.stringify(nc));
+await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
+await sleep(400);
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Cancelled").click(); });
+await sleep(400);
+nc = await page.evaluate(() => { const c = DispatchStore.call("c2"); return { closed: c.status === "closed" && c.outcome === "Cancelled", undo: !!document.querySelector("#toast .toast-undo") }; });
+check("18c: picking 'Cancelled' closes as Cancelled with Undo", nc.closed && nc.undo, JSON.stringify(nc));
+await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
+await sleep(400);
+
+// (18d) Member card shows an inline ETA input + Respond button.
+await setRole("u-m4");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
+await goTab("calls");
+let respRow = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1043"));
+  const row = c ? c.querySelector(".card-respond") : null;
+  return row ? { hasInput: !!row.querySelector(".card-eta"), hasBtn: !!row.querySelector('[data-action="card-respond"]'), btnText: row.querySelector('[data-action="card-respond"]').innerText } : null;
+});
+check("18d: member sees ETA input + Respond button on the open call card", respRow && respRow.hasInput && respRow.hasBtn && /Respond/.test(respRow.btnText), JSON.stringify(respRow));
+
+// (18e) Tapping the ETA input does not open the call detail.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector(".card-eta").click();
+});
+await sleep(300);
+const dlgAfterInputTap = await page.evaluate(() => document.querySelector("#dlg").open);
+check("18e: tapping the card ETA input does not open the dialog", !dlgAfterInputTap);
+
+// (18f) Invalid ETA on the card shows an inline error, no respond, no dialog.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector(".card-eta").focus();
+});
+await page.keyboard.type("banana");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="card-respond"]').click();
+});
+await sleep(400);
+const badEta = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1043"));
+  const err = c.querySelector(".card-eta-error");
+  return { errShown: err && !err.hidden && /Enter an ETA like 15 min/.test(err.innerText), notResponding: !DispatchStore.isResponding(DispatchStore.call("c2"), "u-m4"), noDlg: !document.querySelector("#dlg").open };
+});
+check("18f: 'banana' ETA on the card shows an inline error, no respond, no dialog", badEta.errShown && badEta.notResponding && badEta.noDlg, JSON.stringify(badEta));
+
+// (18g) A valid ETA responds from the card: pill appears, control goes away.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const input = cards.find((c) => c.innerText.includes("INC-1043")).querySelector(".card-eta");
+  input.value = "";
+  input.focus();
+});
+await page.keyboard.type("25 min");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="card-respond"]').click();
+});
+await sleep(400);
+const goodEta = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1043"));
+  const r = DispatchStore.call("c2").responders.find((x) => x.userId === "u-m4");
+  return { responding: !!r && r.eta === "25 min", pill: [...c.querySelectorAll(".pills .pill")].map((p) => p.textContent).includes("PA-21"), rowGone: !c.querySelector(".card-respond"), toast: document.querySelector("#toast").innerText };
+});
+check("18g: valid ETA responds from the card — PA-21 pill, control gone, toast shown", goodEta.responding && goodEta.pill && goodEta.rowGone && /You are responding/.test(goodEta.toast), JSON.stringify(goodEta));
+
+// (18g2) Enter in the card ETA input responds too (keyboard path).
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const input = cards.find((c) => c.innerText.includes("INC-1042")).querySelector(".card-eta");
+  input.value = "";
+  input.focus();
+});
+await page.keyboard.type("22 min");
+await page.keyboard.press("Enter");
+await sleep(400);
+const enterOk = await page.evaluate(() => { const r = DispatchStore.call("c1").responders.find((x) => x.userId === "u-m4"); return !!r && r.eta === "22 min"; });
+check("18g: Enter in the card ETA input responds from the card", enterOk);
+
+// (18h) Dispatcher and coordinator cards have no inline respond control.
+await setRole("u-disp");
+await sleep(300);
+let noRowDisp = await page.evaluate(() => [...document.querySelectorAll(".card-respond")].length);
+check("18h: dispatcher cards have no inline respond control", noRowDisp === 0, "count=" + noRowDisp);
+await setRole("u-coord");
+await sleep(300);
+let noRowCoord = await page.evaluate(() => [...document.querySelectorAll(".card-respond")].length);
+check("18h: coordinator cards have no inline respond control", noRowCoord === 0, "count=" + noRowCoord);
+
+// (18i) The call-detail dialog respond flow still works (member + coordinator).
+const freshInc = await page.evaluate(() => {
+  const r = DispatchStore.createCall({ nature: "Other", address: "9 Fresh St, Kingston, PA", callerName: "Fresh Caller", callerPhone: "555-0119" }, "key-fresh-18i");
+  return r.ok ? r.call.incident : "ERR:" + r.error;
+});
+await setRole("u-m4");
+await openCard(freshInc);
+let dlgRespond = await page.evaluate(() => !!document.querySelector("#respond-form"));
+check("18i: member dialog still shows the Respond form on a call they haven't joined", dlgRespond, freshInc);
+await page.type("#eta", "20 min");
+await page.click('#respond-form button[type="submit"]');
+await sleep(400);
+const dlgRespOk = await page.evaluate((inc) => { const c = DispatchStore.state.calls.find((x) => x.incident === inc); const r = c && c.responders.find((x) => x.userId === "u-m4"); return !!r && r.eta === "20 min"; }, freshInc);
+check("18i: member responds via the dialog (ETA stored)", dlgRespOk);
+await setRole("u-coord");
+await openCard(freshInc);
+await page.type("#eta", "35 min");
+await page.click('#respond-form button[type="submit"]');
+await sleep(400);
+const coordRespOk = await page.evaluate((inc) => { const c = DispatchStore.state.calls.find((x) => x.incident === inc); const r = c && c.responders.find((x) => x.userId === "u-coord"); return !!r && r.eta === "35 min"; }, freshInc);
+check("18i: coordinator responds via the dialog (ETA stored)", coordRespOk);
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 

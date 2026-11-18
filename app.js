@@ -20,23 +20,39 @@ function nowISO() { return new Date().toISOString(); }
 function fmtDT(s) { if (!s) return "—"; var d = new Date(s); return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}); }
 function $(sel) { return document.querySelector(sel); }
 // Toasts: success/info hide after ~3.5s; errors (toastErr) stay 8s and
-// dismiss on tap, so validation feedback is never missed.
+// dismiss on tap, so validation feedback is never missed. The toast
+// body is click-through (pointer-events: none in CSS); only buttons
+// inside a toast are tappable.
 var toastTimer = null;
+var toastOutsideHandler = null;
+// Shared teardown for every toast kind: clear the timer and drop the
+// outside-tap dismiss listener (only the choice toast registers one).
+function clearToastState() {
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+  if (toastOutsideHandler) { document.removeEventListener("click", toastOutsideHandler, true); toastOutsideHandler = null; }
+}
+function hideToast() {
+  var t = $("#toast");
+  clearToastState();
+  t.hidden = true; t.classList.remove("error", "choices"); t.innerHTML = "";
+}
 function toast(msg, ms, isErr) {
   var t = $("#toast");
+  clearToastState();
+  t.classList.remove("choices"); t.innerHTML = "";
   t.textContent = msg; t.classList.toggle("error", !!isErr); t.hidden = false;
-  if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(function () { t.hidden = true; t.classList.remove("error"); }, ms || 3500);
 }
 function toastErr(msg) { toast(msg, 8000, true); }
-// Toast with a real action button (e.g. Undo after a one-tap Correct
-// close). The button is a real <button> inside the toast, not plain
-// text; tapping it runs the action. Tapping anywhere else does NOT
+// Toast with a real action button (e.g. Undo after a Correct close).
+// The button is a real <button> inside the toast, not plain text;
+// tapping it runs the action. Tapping anywhere else does NOT
 // dismiss the toast before its window ends — only tapping the toast
 // itself or the timer does.
 function toastAction(msg, label, fn, ms) {
   var t = $("#toast");
-  t.innerHTML = "";
+  clearToastState();
+  t.classList.remove("choices"); t.innerHTML = "";
   var span = document.createElement("span");
   span.textContent = msg;
   var btn = document.createElement("button");
@@ -44,8 +60,77 @@ function toastAction(msg, label, fn, ms) {
   btn.addEventListener("click", function (ev) { ev.stopPropagation(); fn(); });
   t.appendChild(span); t.appendChild(btn);
   t.classList.remove("error"); t.hidden = false;
-  if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(function () { t.hidden = true; }, ms || 8000);
+}
+// Choice toast (Correct confirm step, owner decision 2026-11-17):
+// asks the user to pick one of several outcomes. Tapping a choice
+// hides the toast and runs onPick with the choice's value. The ×
+// dismisses with no action, and so does a tap anywhere else — the
+// outside listener is registered a tick after the toast opens, so
+// the tap that opened it cannot dismiss it in the same bubble. The
+// toast also auto-dismisses after ~15s.
+function toastChoices(msg, choices, onPick, ms) {
+  var t = $("#toast");
+  clearToastState();
+  t.classList.remove("error"); t.classList.add("choices"); t.innerHTML = "";
+  var span = document.createElement("span");
+  span.textContent = msg;
+  t.appendChild(span);
+  var row = document.createElement("div");
+  row.className = "toast-choices";
+  choices.forEach(function (ch) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "toast-choice"; b.textContent = ch.label;
+    b.addEventListener("click", function (ev) { ev.stopPropagation(); hideToast(); onPick(ch.value); });
+    row.appendChild(b);
+  });
+  t.appendChild(row);
+  var x = document.createElement("button");
+  x.type = "button"; x.className = "toast-x"; x.setAttribute("aria-label", "Dismiss without choosing"); x.textContent = "✕";
+  x.addEventListener("click", function (ev) { ev.stopPropagation(); hideToast(); });
+  t.appendChild(x);
+  t.hidden = false;
+  toastTimer = setTimeout(hideToast, ms || 15000);
+  setTimeout(function () {
+    toastOutsideHandler = function (ev) {
+      if (ev.target.closest && ev.target.closest("#toast")) return;
+      hideToast();
+    };
+    document.addEventListener("click", toastOutsideHandler, true);
+  }, 0);
+}
+// Close chosen from the Correct confirm toast: the same closeCall
+// path as the close dialog (equipment-out still blocks), then the
+// Undo toast as the safety net.
+function closeFromToast(callId, outcome) {
+  var r = Store.closeCall(callId, outcome);
+  if (r.ok) {
+    toastAction("Call closed as " + outcomeLabel(outcome) + ".", "Undo", function () {
+      var rr = Store.reopenCall(callId);
+      if (rr.ok) { render(); toast("Call reopened — it is open again."); }
+      else { toastErr(rr.error); render(); }
+    }, 8000);
+  } else showError(r.error);
+  render();
+}
+// Respond from a card's inline ETA control (members only): the same
+// Store.respond path and parseETA rules as the dialog form. An
+// invalid ETA shows an inline error on the card, never a silent
+// failure; on success the card re-renders with the member's pill
+// and the control gone.
+function respondFromCard(callId) {
+  var input = document.querySelector('.card-eta[data-call="' + callId + '"]');
+  var row = input ? input.closest(".card-respond") : null;
+  var errBox = row ? row.querySelector(".card-eta-error") : null;
+  var r = Store.respond(callId, input ? input.value : "");
+  if (r.ok) {
+    toast("You are responding — you can now see the caller’s number and call them back.");
+    render();
+  } else if (errBox) {
+    errBox.textContent = r.error; errBox.hidden = false;
+  } else {
+    showError(r.error);
+  }
 }
 // Error shown while a dialog is open: the dialog is a native <dialog>
 // (top layer — no z-index can put a toast above it), so the error
@@ -632,6 +717,19 @@ function callCard(c) {
     var town = townOf(c.address);
     strip = '<span class="card-strip strip-closed" aria-hidden="true">' + (town ? '<span class="strip-town">' + esc(town) + "</span>" : "") + "</span>";
   }
+  // Inline respond control (members only, open call, not already
+  // responding): ETA input + Respond button right on the card, no
+  // extra screen. Dispatcher/coordinator cards don't get it — they
+  // assign, and their respond path stays in the call detail.
+  var respondRow = "";
+  if (isOpen && me.role === "member" && !responding) {
+    respondRow = '<div class="card-respond">' +
+      '<label class="card-respond-label" for="eta-' + c.id + '">ETA (min)</label>' +
+      '<input type="text" class="card-eta" id="eta-' + c.id + '" data-call="' + c.id + '" placeholder="e.g. 15 min" autocomplete="off">' +
+      '<button type="button" class="btn small card-respond-btn" data-action="card-respond" data-id="' + c.id + '">Respond</button>' +
+      '<div class="card-eta-error" role="alert" hidden></div>' +
+      "</div>";
+  }
   return '<article class="card call-card' + stateClass + (c.backupNeeded ? " backup" : "") + '" data-action="open-call" data-id="' + c.id + '" tabindex="0" role="button" aria-label="Open ' + esc(c.incident) + ' — ' + esc(c.nature) + '">' + strip +
     '<div class="card-head"><div class="card-addr"><span class="pin">' + ICONS.pin + "</span>" + esc(c.address) + '</div>' +
     '<div class="card-inc">' + esc(c.incident) + '<span class="time">' + esc(time) + "</span></div>" +
@@ -645,7 +743,7 @@ function callCard(c) {
           ? "Caller hidden after close — an approved grant is needed to see it."
           : "Caller hidden — visible only while you are responding to this call, or with an approved grant.") + "</span></div>") +
     (c.notes ? '<div class="card-row"><span class="ic">' + ICONS.clip + '</span><span class="val note">' + esc(c.notes) + "</span></div>" : "") +
-    '<div class="pills">' + pills + "</div>" + bar +
+    '<div class="pills">' + pills + "</div>" + respondRow + bar +
     "</article>";
 }
 
@@ -1225,6 +1323,9 @@ document.addEventListener("click", function (e) {
   // tap-to-call number, the Call/Maps bar segments) keep their own
   // behaviour instead of opening the dialog.
   if (a === "open-call" && e.target.closest("a")) return;
+  // Taps inside the card's inline respond row (ETA input / error
+  // text) must not open the call — only the Respond button acts.
+  if (a === "open-call" && e.target.closest(".card-respond")) return;
   switch (a) {
     case "menu-open": openMenu(); break;
     case "menu-close": closeMenu(); break;
@@ -1279,20 +1380,23 @@ document.addEventListener("click", function (e) {
       break;
     case "reopen": r = Store.reopenCall(id); if (r.ok) { toast("Call reopened — responses, assignments and equipment stay as they were."); closeDialog(); } else showError(r.error); render(); break;
     case "correct-call": {
-      // One-tap close stays one-tap (owner decision) — but the
-      // confirmation toast now carries an Undo button for ~8s. Undo
-      // reopens the call, restoring responses, assignments and
-      // equipment as they were (the existing reopen path).
-      r = Store.closeCorrect(id);
-      if (r.ok) {
-        toastAction("Call closed as Corrected.", "Undo", function () {
-          var rr = Store.reopenCall(id);
-          if (rr.ok) { render(); toast("Call reopened — it is open again."); }
-          else { toastErr(rr.error); render(); }
-        }, 8000);
-      } else showError(r.error);
-      render(); break;
+      // Confirm step (owner decision 2026-11-17): the checkmark no
+      // longer closes instantly. A toast asks which outcome —
+      // Corrected / Not corrected / Cancelled — with an × (or a tap
+      // elsewhere) to dismiss without choosing. Picking one closes
+      // through the same closeCall path (equipment-out still
+      // blocks); the Undo toast still follows a successful close.
+      c = Store.call(id);
+      if (c && Store.can("close")) {
+        toastChoices("Close " + c.incident + " as…", [
+          { label: "Corrected", value: "Corrected" },
+          { label: "Not corrected", value: "NotCorrected" },
+          { label: "Cancelled", value: "Cancelled" }
+        ], function (outcome) { closeFromToast(id, outcome); });
+      }
+      break;
     }
+    case "card-respond": respondFromCard(id); break;
     case "request-callback": r = Store.requestHidden(id, ["phone"]); if (r.ok) toast("Request sent — a dispatcher must approve it."); else showError(r.error); break;
     case "request-hidden": r = Store.requestHidden(id, ["name", "phone"]); if (r.ok) toast("Request sent — a dispatcher must approve it."); else showError(r.error); break;
     case "approve-request": {
@@ -1389,6 +1493,12 @@ document.addEventListener("click", function (e) {
    Escape closes the side menu. */
 document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") { var m = $("#menu"); if (m && !m.hidden) closeMenu(); return; }
+  // Enter in a card's inline ETA input responds, like tapping Respond.
+  if (e.key === "Enter" && e.target.classList && e.target.classList.contains("card-eta")) {
+    e.preventDefault();
+    respondFromCard(e.target.dataset.call);
+    return;
+  }
   if ((e.key !== "Enter" && e.key !== " ") || !e.target.classList || !e.target.classList.contains("call-card")) return;
   e.preventDefault();
   var c = Store.call(e.target.dataset.id);

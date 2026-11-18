@@ -18,7 +18,8 @@ Card colors 2026-11-17 (same day): the owner's decision on the open question —
 
 Navigation + undo + banner 2026-11-17 (same day, evening): Instinct's rerun of the live v=20261117-colors prototype (phone-size desktop Chrome, fake data only) re-verified all previous fixes and raised four new items — app-first navigation (first screen was ~480/844px of chrome), one-tap Correct with no undo, the Decided table still 585px wide, and announcement entries that never aged out. PUSHED 2026-11-17 (commit c5f0e46f) and live-verified — live app.js and styles.css byte-match local (md5), index.html serves ?v=20261117-nav. See "Navigation + undo + banner — 2026-11-17" below.
 Rerun #4 fixes 2026-11-17 (same day, evening): Instinct's rerun #4 of the live v=20261117-nav prototype (phone-size desktop Chrome, fake data only) re-verified the nav rebuild, banner dismiss, Decided table, Correct Undo, unassign two-tap, equipment-blocked close and Manage explanations, and raised four new items — fake-filled nature field, outcome codes without spaces, silent Add-equipment, member can't see own privacy-request status. PUSHED 2026-11-17 (commit 528a63e2) and live-verified — live app.js and styles.css byte-match local (md5), `outcomeLabel` + `Choose a call nature` present. See "Rerun #4 fixes — 2026-11-17" below.
-Draft vs completed card style 2026-11-17 (same day, evening): owner's production screenshot — draft cards go muted gray with a plain gray side strip, closed cards go blue with a bright blue side strip carrying the town vertically; responder pills show unit codes (new optional `unit` field, e.g. PA-01); PRIVACY REVERSAL — members who responded to a call CAN see its caller on the closed call. **NOT YET PUSHED — parent pushes after verifying.** Asset version bumped to `?v=20261117-draftclosed`. See "Draft vs completed card style — 2026-11-17" below.
+Draft vs completed card style 2026-11-17 (same day, evening): owner's production screenshot — draft cards go muted gray with a plain gray side strip, closed cards go blue with a bright blue side strip carrying the town vertically; responder pills show unit codes (new optional `unit` field, e.g. PA-01); PRIVACY REVERSAL — members who responded to a call CAN see its caller on the closed call. PUSHED 2026-11-17 (commit ab8ba16f) and live-verified — live app.js and styles.css byte-match local (md5). 124/124 smoke checks. See "Draft vs completed card style — 2026-11-17" below.
+Confirm toast + respond on card 2026-11-17 (same day, evening): owner-approved answers to the open questions — the checkmark no longer closes instantly, it pops a toast asking Corrected / Not corrected / Cancelled (× or tap elsewhere dismisses); members get an inline ETA input + Respond button right on the open call card. **NOT YET PUSHED — parent pushes after verifying.** Asset version bumped to `?v=20261117-batchb`. 142/142 smoke checks. See "Confirm toast + respond on card — 2026-11-17" below.
 
 ## Architecture
 
@@ -862,10 +863,9 @@ Smoke section 13 check 12 was retargeted to the new rule.
 
 ### NOT built in this batch (owner-approved, later batch)
 
-- Correct confirm step (pop-up toast asking Corrected / Not
-  corrected / Cancelled).
-- Respond-on-card for members.
 - Tile menu page — owner said no; the hamburger drawer stays.
+- Correct confirm step and respond-on-card were in this list and are
+  now BUILT — see "Confirm toast + respond on card — 2026-11-17" below.
 
 ### Tests
 
@@ -903,5 +903,109 @@ exactly this, app was correct).
 ### Asset version
 
 `index.html` asset version bumped `?v=20261117-rerun4` →
-`?v=20261117-draftclosed` (styles.css, seed.js, app.js). **NOT YET
-PUSHED — parent pushes after verifying.**
+`?v=20261117-draftclosed` (styles.css, seed.js, app.js). PUSHED 2026-11-17 (commit ab8ba16f) and live-verified — live app.js and styles.css byte-match local (md5).
+
+## Confirm toast + respond on card — 2026-11-17
+
+Owner answers to the open questions from the rerun #4 round (same
+night): (Q2) the checkmark gets a confirm step — a pop-up toast
+asking Corrected / Not corrected / Cancelled; (Q3) respond-on-card
+for members, YES. Both built here. This supersedes the one-tap
+Correct close from the polish pass (the checkmark no longer closes
+instantly); the ~8s Undo toast after a close stays, and the full
+7-outcome close dialog is unchanged.
+
+### 1. Correct confirm step — a choice toast, not an instant close
+
+New `toastChoices(msg, choices, onPick, ms)` in `app.js`
+(`styles.css`: `.toast.choices`, `.toast-choice`, `.toast-x`):
+
+- Tapping the checkmark (Correct) on an open call card pops a toast
+  reading "Close INC-1043 as…" with three tappable choices —
+  "Corrected", "Not corrected", "Cancelled" — and an ×. The call
+  stays open until one is picked.
+- Picking a choice closes through the same `closeCall` path as the
+  close dialog (`closeFromToast`): the equipment-out block still
+  applies (the error shows and the call stays open), and after a
+  successful close the existing Undo toast appears for ~8s (reopen
+  restores everything, as before).
+- Dismissing without choosing: the ×, or a tap anywhere else. The
+  outside-tap listener is registered a tick after the toast opens
+  (`setTimeout(0)`), so the tap that opened the toast cannot
+  dismiss it in the same bubble; choice/× taps stopPropagation.
+  The toast also auto-dismisses after ~15s.
+- Toast plumbing (`toast` / `toastAction` / `hideToast` /
+  `clearToastState`): every toast kind now clears the shared timer
+  and drops the outside-tap listener first, so a plain toast or an
+  Undo toast replacing the choice toast can never leave a stale
+  listener behind. The Undo toast keeps its existing behaviour — a
+  tap elsewhere does NOT dismiss it before its window ends.
+- The checkmark stays dispatcher/coordinator-only (`Store.can("close")`),
+  as before. `Store.closeCorrect` remains as a one-line Store
+  convenience; the card button no longer calls it directly.
+
+### 2. Respond on the card (members)
+
+New `.card-respond` row in `callCard()` (`app.js`, rules in
+`styles.css`): on an OPEN call card, a signed-in member who is not
+already responding sees a small "ETA (min)" input plus a Respond
+button, right on the card — no extra screen. Enter in the input
+responds too (keydown handler).
+
+- Same path as the dialog form: `respondFromCard` calls
+  `Store.respond` with the same `parseETA` rules ("15", "15 min",
+  "1h 30m" accepted and normalised; "banana" rejected). An invalid
+  ETA shows an inline error on the card (`.card-eta-error`), never
+  a silent failure. On success the card re-renders with the
+  member's unit-code pill and the control gone for that member.
+- Dispatcher/coordinator cards do NOT get the control — they
+  assign, not respond (coordinators can still respond through the
+  call-detail dialog, unchanged). The dialog respond form is
+  unchanged for both members and coordinators.
+- Card-open guard: taps on the ETA input or the inline error do not
+  open the call detail (the delegated click handler returns early
+  for taps inside `.card-respond`); only the Respond button acts.
+  The keyboard handler likewise only opens a card on Enter/Space
+  when the focused element IS the card, so typing in the input
+  never opens the dialog.
+
+### Tests
+
+New `tests/smoke.mjs` section 18 (15 checks; **142/142 total** in
+headless Chrome at 390×844, served over local HTTP; zero page
+errors). Two pre-existing blocks were retargeted (not weakened):
+section 11(a)/(b) and section 15d now go through the confirm toast
+(the tap asks first, then the pick closes), which adds 3 checks.
+
+- (18a) Correct tap shows the 3-choice toast + × and the call
+  stays open; × dismisses it with no close.
+- (18b) A tap elsewhere (page heading) also dismisses the confirm
+  toast with no close.
+- (18c) Picking "Not corrected" closes as NotCorrected with Undo;
+  picking "Cancelled" closes as Cancelled with Undo; Undo reopens
+  in both cases.
+- (18d) Member card shows the ETA input + Respond button.
+- (18e) Tapping the card ETA input does not open the dialog.
+- (18f) "banana" ETA on the card shows the inline error, adds no
+  responder, opens no dialog.
+- (18g) "25 min" responds from the card — PA-21 pill appears,
+  control gone, "You are responding" toast; Enter in the ETA input
+  responds too (INC-1042, "22 min").
+- (18h) Dispatcher and coordinator cards have no inline respond
+  control (0 `.card-respond` rows for either role).
+- (18i) Dialog respond flow still works: member and coordinator
+  each respond via the dialog on a fresh call (ETAs "20 min" /
+  "35 min" stored).
+
+Harness note: the suite run was interrupted once by a service
+restart mid-run; the re-run after restarting the local HTTP server
+completed clean (142/142). Cleanup note: `pkill -f "http.server
+8123"` matches the shell running the pkill command itself and kills
+it — use the bracket form (`pkill -f "[h]ttp.server 8123"`) or
+verify with a curl instead.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261117-draftclosed` →
+`?v=20261117-batchb` (styles.css, seed.js, app.js). **NOT YET PUSHED —
+parent pushes after verifying.**

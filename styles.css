@@ -207,6 +207,15 @@ h3 { font-size: 1rem; margin: 0 0 .3em; }
 .bar-seg:active { background: rgba(255, 255, 255, .12); }
 .bar-seg.act-correct { background: var(--green); color: #fff; }
 .bar-seg.act-correct:hover { background: var(--green-dark); color: #fff; }
+/* Inline respond control on a member's open call card: ETA input +
+   Respond button, no extra screen. Taps on the input must not open
+   the call (the click handler guards .card-respond). */
+.card-respond { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 2px; }
+.card-respond-label { margin: 0; font-size: .85rem; font-weight: 700; color: var(--card-ink); }
+.card-eta { flex: 1 1 110px; width: auto; min-width: 0; min-height: 44px; }
+.card-respond-btn { margin: 0; flex: none; }
+.card-eta-error { flex: 1 1 100%; background: #fde2e2; color: #7a1f16; border: 1px solid #f0b4b4; border-radius: 10px; padding: 8px 10px; font-weight: 700; font-size: .9rem; }
+.card-neutral .card-respond-label { color: var(--ink); }
 
 /* ----- badges / status pills ----- */
 .badge { display: inline-block; font-size: .72rem; font-weight: 800; letter-spacing: .03em; padding: 3px 9px; border-radius: 999px; background: #e6ebf2; color: var(--ink); margin: 2px 4px 2px 0; text-transform: uppercase; }
@@ -262,6 +271,16 @@ dialog::backdrop { background: rgba(10, 20, 40, .55); }
    for a button underneath it (same interception family as the
    toast-UNDO lesson: a fixed toast must not eat the next tap). */
 .toast-undo { pointer-events: auto; background: #fff; color: var(--navy); border: none; border-radius: 8px; padding: 8px 14px; font-size: .92rem; font-weight: 800; cursor: pointer; min-height: 36px; margin-left: 10px; flex: none; }
+/* Choice toast (Correct confirm step): message + a row of outcome
+   buttons + an × to dismiss without choosing. The toast body stays
+   click-through except the buttons; a tap anywhere else also
+   dismisses it (registered by toastChoices, a tick after opening, so
+   the opening tap can't dismiss it). The :not([hidden]) guard keeps
+   the flex display from overriding the hidden attribute. */
+.toast.choices:not([hidden]) { display: flex; flex-direction: column; gap: 10px; align-items: stretch; padding-right: 48px; }
+.toast-choices { display: flex; gap: 8px; flex-wrap: wrap; }
+.toast-choice { pointer-events: auto; background: #fff; color: var(--navy); border: none; border-radius: 8px; padding: 10px 12px; font-size: .92rem; font-weight: 800; cursor: pointer; min-height: 44px; flex: 1 1 auto; font-family: inherit; }
+.toast-x { pointer-events: auto; position: absolute; top: 2px; right: 2px; background: transparent; border: none; color: #fff; font-size: 1.1rem; font-weight: 800; line-height: 1; min-width: 44px; min-height: 44px; cursor: pointer; }
 .foot { max-width: 760px; margin: 0 auto 24px; padding: 0 12px; color: var(--mute); font-size: .84rem; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: .96rem; }
 .kv dt { font-weight: 700; color: var(--mute); } .kv dd { margin: 0; }
