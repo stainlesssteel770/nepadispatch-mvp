@@ -42,7 +42,7 @@ Fix 6 — address suggestions (UI/UX test v2, Finding 7, sev 1; owner-approved 2
 
 Fix 7 — secondary control sizes (UI/UX test v2, Finding 8, sev 2; owner-approved 2026-11-23, Batch C): the banner dismiss ✕ is now 48×48 (was 44×44), the call-detail dialog gains a 48×48 ✕ (it had none — the tester's "detail-modal ✕ ≈30px" did not exist in the build), and the Manage nature-row controls (↑/↓, Rename, Delete) are now 48px tall (were 44px). Primary actions unchanged (bar segments 62px, ETA input 44px, tab buttons 44px — measured, no regression). PUSHED 2026-11-23 (commit 15c74379) and live-verified; `?v=20261123-fix7`, 268/268 smoke checks. See "Fix 7 — secondary control sizes — 2026-11-23" below.
 
-Fix 8 — footer spacing (UI/UX test v2, Finding 9, sev 1; owner-approved 2026-11-23, Batch C): the last call card now sits 52px above the footer (was 28px) at every width — the Calls list gets a deeper main bottom pad, compensated by dropping the footer's bottom margin on Calls only so the document height and max-scroll geometry are unchanged. Footer text, card layout and bottom nav unchanged. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix8`, 276/276 smoke checks. See "Fix 8 — footer spacing — 2026-11-23" below.
+Fix 8 — footer spacing (UI/UX test v2, Finding 9, sev 1; owner-approved 2026-11-23, Batch C): the last call card now sits 52px above the footer (was 28px) at every width — the Calls list gets a deeper main bottom pad, compensated by dropping the footer's bottom margin on Calls only so the document height and max-scroll geometry are unchanged. Footer text, card layout and bottom nav unchanged. PUSHED 2026-11-23 (commit 03302f8f) and live-verified; `?v=20261123-fix8`, 276/276 smoke checks. See "Fix 8 — footer spacing — 2026-11-23" below.
 
 ## Architecture
 
@@ -2067,4 +2067,4 @@ rest.
 
 `index.html` asset version bumped `?v=20261123-fix7` →
 `?v=20261123-fix8` (styles.css, seed.js, app.js, and the SW cache
-name matches). PUSHED 2026-11-23 and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
+name matches). PUSHED 2026-11-23 (commit 03302f8f) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
