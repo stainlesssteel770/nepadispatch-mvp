@@ -29,6 +29,8 @@ Fix 1 — equipment return in the call detail (UI/UX test v2, Finding 1, sev 3; 
 
 Fix 2 — toasts no longer cover the card action bars (UI/UX test v2, Finding 2, sev 2; owner-approved 2026-11-23, Batch A): toasts are now docked under the sticky header instead of above the bottom tab bar. Bottom-docked, the choice toast (195×230 at 390px) covered the Backup/Correct/Call segments of the next card and the Undo toast overlapped their bottom 11px; top-docked, no visible card action bar is under either toast at scroll 0 or scrolled to the bottom, and the banner dismiss × stays clear. Toast text, outcome buttons, ✕ dismiss, ~8s Undo window and the card action bar layout are unchanged. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fix2`, 215/215 smoke checks. See "Fix 2 — toast overlap — 2026-11-23" below.
 
+Q1 — reopen restores backup (UI/UX test v2, Finding 10, sev 2; owner decision 2026-11-23, Option A, Batch A): closeCall stashed `backupNeeded` in `backupWasNeeded` before clearing it; reopenCall restores the flag and re-creates the backup alert, so Undo and detail Reopen both bring the BACKUP NEEDED badge and banner back. Closed calls still never surface in the banner (D2). NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fixq1`, 220/220 smoke checks. See "Q1 — reopen restores backup — 2026-11-23" below.
+
 ## Architecture
 
 Plain HTML/CSS/JS, no build step, no framework, no network calls.
@@ -1538,5 +1540,68 @@ not the scripted seconds.
 
 `index.html` asset version bumped `?v=20261123-fix1` →
 `?v=20261123-fix2` (styles.css, seed.js, app.js, and the SW cache
+name matches). NOT YET PUSHED — the parent agent verifies and
+pushes; live-verification (md5) still to be done after the push.
+
+## Q1 — reopen restores backup — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 10,
+severity 2 — after close → Undo, the call reopened with the responder
+restored but the BACKUP NEEDED badge was gone. Owner decision
+2026-11-23, Option A: close-clears-backup is a bug, not intended —
+reopening restores responses, assignments, and equipment as they were,
+so the backup request comes back too. Added to Batch A as its own
+commit, after Fix 2.
+
+### Mechanism found
+
+- `Store.closeCall` did two things that destroyed the backup request:
+  it set `c.backupNeeded = false` (the flag that drives the BACKUP
+  NEEDED badge and the detail "Backup: NEEDED" line) AND it pruned
+  ALL alerts for the call (`a.callId !== callId`) — the pass-5 D2
+  rule that keeps a closed call out of the banner.
+- `Store.reopenCall` restored only status/outcome/closedAt — it never
+  touched `backupNeeded` or alerts, so the badge and the banner alert
+  stayed gone after reopen. Both the Undo path and the detail Reopen
+  button go through `Store.reopenCall`, so the fix lives there once.
+
+### Change (app.js, Store only)
+
+- `closeCall` now stashes `c.backupWasNeeded = c.backupNeeded`
+  before clearing the flag. The flag clear and the alert pruning are
+  unchanged — a closed call still has no backup flag and no alerts,
+  so D2 is untouched.
+- `reopenCall`, when `c.backupWasNeeded` is set: clears the stash,
+  sets `c.backupNeeded = true`, re-creates the backup alert (same
+  shape as `requestBackup` — fresh id, `at: nowISO()`, text "BACKUP
+  NEEDED on INC-…"), and logs "Backup request restored on INC-… on
+  reopen". The banner only renders a backup alert while its call is
+  open and needs backup, so the restored alert can only surface once
+  the call is open again.
+- No change to who can request backup, the badge, the toast, or the
+  close block. A call closed with no backup request gains nothing on
+  reopen (`backupWasNeeded` false/undefined); a backup cleared via
+  Clear before closing is not restored.
+
+### Tests
+
+New smoke section 23 (5 checks): 23a backup requested — badge, flag,
+alert and banner; 23b closed call keeps no flag/alert and never shows
+in the banner (D2); 23c Undo reopens with badge, flag, alert and
+banner restored; 23d detail Reopen restores the same; 23e reopening a
+call that never needed backup restores no badge. Failing-test-first:
+on the pre-fix tree the run was 218/220 with only 23c and 23d
+failing; after the fix, **220/220 passed**, zero page errors. The 20b
+SW checks hardcode the version token, so they were bumped to
+`20261123-fixq1` with the rest (the SW itself was already serving
+the new cache — the stale token was the only failure).
+
+T5 re-run (Q1) vs baseline (~3 min, ~6 taps, 0 errors): 8s scripted
+wall, 11 scripted taps (T5 core close→Undo→close = 5 taps), 0 errors.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fix2` →
+`?v=20261123-fixq1` (styles.css, seed.js, app.js, and the SW cache
 name matches). NOT YET PUSHED — the parent agent verifies and
 pushes; live-verification (md5) still to be done after the push.

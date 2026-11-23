@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix2"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix2", "app.js?v=20261123-fix2", "seed.js?v=20261123-fix2", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fixq1"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fixq1", "app.js?v=20261123-fixq1", "seed.js?v=20261123-fixq1", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -2011,6 +2011,124 @@ const closedAgain = await page.evaluate(() => { const c = DispatchStore.call("c2
 check("22d: close again as Corrected", closedAgain);
 const t5Secs = Math.round((Date.now() - t5Start) / 1000);
 console.log("T5 re-run (Fix 2): " + t5Secs + "s wall, 7 scripted taps (2 respond + 5 close/Undo/close), 0 errors — baseline ~3 min, ~6 taps, 0 errors");
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 23. Q1 — reopen restores the backup request (v2 test, Finding 10,
+// sev 2; owner decision 2026-11-23, Option A: close-clears-backup is
+// a bug, not intended). T5 baseline: ~3 min, ~6 taps, 0 errors.
+// closeCall clears backupNeeded and prunes the call's alerts (D2,
+// pass 5 — a closed call must never surface in the banner); reopenCall
+// must restore both when backup was needed before closing — via Undo
+// AND via the detail Reopen button, which share reopenCall.
+const q1Start = Date.now();
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+// (a) request backup on INC-1043 from the card bell; badge + banner
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="backup-request"]').click();
+});
+await sleep(400);
+const q1On = await page.evaluate(() => {
+  const c = DispatchStore.call("c2");
+  const card = [...document.querySelectorAll(".card")].find((x) => x.innerText.includes("INC-1043"));
+  return {
+    flag: c.backupNeeded,
+    badge: card.innerText.includes("BACKUP NEEDED"),
+    alert: DispatchStore.state.alerts.some((x) => x.kind === "backup" && x.callId === "c2"),
+    banner: document.querySelector("#alert-banner").innerText.includes("BACKUP NEEDED on INC-1043"),
+  };
+});
+check("23a: backup requested — badge, flag, alert and banner all show it", q1On.flag && q1On.badge && q1On.alert && q1On.banner, JSON.stringify(q1On));
+// close as Corrected through the checkmark flow
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { const ch = [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected"); if (ch) ch.click(); });
+await sleep(400);
+// (b) while closed: no backup flag, no backup alert, banner silent
+const q1Closed = await page.evaluate(() => {
+  const c = DispatchStore.call("c2");
+  return {
+    closed: c.status === "closed" && c.outcome === "Corrected",
+    flag: c.backupNeeded,
+    alert: DispatchStore.state.alerts.some((x) => x.kind === "backup" && x.callId === "c2"),
+    banner: document.querySelector("#alert-banner").innerText.includes("BACKUP NEEDED on INC-1043"),
+  };
+});
+check("23b: closed call keeps no backup flag/alert and never shows in the banner (D2)", q1Closed.closed && !q1Closed.flag && !q1Closed.alert && !q1Closed.banner, JSON.stringify(q1Closed));
+// (c) Undo reopens — the backup request comes back with it
+await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
+await sleep(400);
+const q1Undo = await page.evaluate(() => {
+  const c = DispatchStore.call("c2");
+  const card = [...document.querySelectorAll(".card")].find((x) => x.innerText.includes("INC-1043"));
+  return {
+    open: c.status === "open",
+    flag: c.backupNeeded,
+    badge: card.innerText.includes("BACKUP NEEDED"),
+    alert: DispatchStore.state.alerts.some((x) => x.kind === "backup" && x.callId === "c2"),
+    banner: document.querySelector("#alert-banner").innerText.includes("BACKUP NEEDED on INC-1043"),
+  };
+});
+check("23c: Undo reopens with the BACKUP NEEDED badge, flag, alert and banner restored", q1Undo.open && q1Undo.flag && q1Undo.badge && q1Undo.alert && q1Undo.banner, JSON.stringify(q1Undo));
+// (d) the detail Reopen path restores it too: close again, reopen
+// from the call detail, badge back.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { const ch = [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected"); if (ch) ch.click(); });
+await sleep(400);
+await openCard("INC-1043");
+await sleep(300);
+await page.evaluate(() => { const b = document.querySelector('#dlg-body [data-action="reopen"]'); if (b) b.click(); });
+await sleep(400);
+const q1Detail = await page.evaluate(() => {
+  const c = DispatchStore.call("c2");
+  const card = [...document.querySelectorAll(".card")].find((x) => x.innerText.includes("INC-1043"));
+  return {
+    open: c.status === "open",
+    flag: c.backupNeeded,
+    badge: card.innerText.includes("BACKUP NEEDED"),
+    alert: DispatchStore.state.alerts.some((x) => x.kind === "backup" && x.callId === "c2"),
+    banner: document.querySelector("#alert-banner").innerText.includes("BACKUP NEEDED on INC-1043"),
+  };
+});
+check("23d: detail Reopen restores the BACKUP NEEDED badge, flag, alert and banner", q1Detail.open && q1Detail.flag && q1Detail.badge && q1Detail.alert && q1Detail.banner, JSON.stringify(q1Detail));
+// (e) no false restore: a call closed with NO backup request, then
+// reopened, gains no badge.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { const ch = [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected"); if (ch) ch.click(); });
+await sleep(400);
+await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
+await sleep(400);
+const q1None = await page.evaluate(() => {
+  const c = DispatchStore.call("c2");
+  const card = [...document.querySelectorAll(".card")].find((x) => x.innerText.includes("INC-1043"));
+  return {
+    open: c.status === "open",
+    flag: c.backupNeeded,
+    badge: card.innerText.includes("BACKUP NEEDED"),
+    alert: DispatchStore.state.alerts.some((x) => x.kind === "backup" && x.callId === "c2"),
+  };
+});
+check("23e: reopening a call that never needed backup restores no badge", q1None.open && !q1None.flag && !q1None.badge && !q1None.alert, JSON.stringify(q1None));
+const q1Secs = Math.round((Date.now() - q1Start) / 1000);
+console.log("T5 re-run (Q1): " + q1Secs + "s wall, 11 scripted taps (T5 core close→Undo→close = 5 taps), 0 errors — baseline ~3 min, ~6 taps, 0 errors");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));

@@ -453,7 +453,11 @@ var Store = {
       var names = c.equipmentOut.map(function (id) { var it = Store.item(id); return it ? it.name : id; }).join(", ");
       return { ok: false, error: "Equipment must be returned before closing: " + names };
     }
-    c.status = "closed"; c.outcome = outcome; c.closedAt = nowISO(); c.backupNeeded = false;
+    c.status = "closed"; c.outcome = outcome; c.closedAt = nowISO();
+    // Q1 (owner decision 2026-11-23, Option A): stash whether backup
+    // was needed so reopenCall can restore it — closing itself still
+    // clears the flag and the alerts (D2, pass 5).
+    c.backupWasNeeded = c.backupNeeded; c.backupNeeded = false;
     // Closing clears the call's alerts: its backup alert AND its
     // new-call notification — the banner must never keep surfacing a
     // call that is already closed (D2, pass 5).
@@ -464,6 +468,20 @@ var Store = {
   reopenCall: function (callId) {
     var c = this.call(callId); if (!c || c.status !== "closed") return { ok: false, error: "Only a closed call can be reopened." };
     c.status = "open"; c.outcome = null; c.closedAt = null; // responders, assignments and equipment stay as they were
+    // Q1 (owner decision 2026-11-23, Option A): reopening restores the
+    // backup request too. closeCall stashed it in backupWasNeeded; the
+    // flag is set back and the backup alert is re-created (same shape
+    // as requestBackup) so the banner shows it again. The banner only
+    // renders a backup alert while its call is open and needs backup,
+    // so a closed call still never surfaces there (D2 untouched).
+    if (c.backupWasNeeded) {
+      c.backupWasNeeded = false;
+      c.backupNeeded = true;
+      this.state.alerts = this.state.alerts.filter(function (a) { return !(a.kind === "backup" && a.callId === c.id); });
+      this.state.alerts.unshift({ id: uid("a"), callId: c.id, kind: "backup", urgent: c.urgent,
+        text: "BACKUP NEEDED on " + c.incident + ": " + c.nature + " at " + c.address, at: nowISO() });
+      this.log("Backup request restored on " + c.incident + " on reopen by " + this.me().name);
+    }
     this.log(c.incident + " reopened by " + this.me().name); this.save();
     return { ok: true };
   },
