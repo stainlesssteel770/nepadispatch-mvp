@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix4"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix4", "app.js?v=20261123-fix4", "seed.js?v=20261123-fix4", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix5"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix5", "app.js?v=20261123-fix5", "seed.js?v=20261123-fix5", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -2385,6 +2385,66 @@ const fix4Fit = await page.evaluate(() => {
 });
 check("26g: banner sub-line fits at 390px — no overlap with the dismiss ✕, no page overflow", fix4Fit.subPresent && !fix4Fit.overlap && fix4Fit.subInside && fix4Fit.docW <= 390, JSON.stringify(fix4Fit));
 console.log("T4 re-run (Fix 4): " + fix4TaskSecs + "s wall, 2 scripted taps, 0 errors — baseline ~1 min, 2 taps, 0 errors");
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 27. Fix 5 — rename the hamburger-menu "Dashboard" page to "My stats"
+// (v2 test, Finding 5, sev 2; Batch C). T11 baseline: ~1 min, 3 taps,
+// 0 errors. The menu entry, the page heading and the org sub-heading
+// are renamed; the stats content, bottom-nav Home and every other menu
+// label are unchanged. The tab id stays "dashboard" (internal only —
+// goTab("dashboard") and the section-15b menu-id checks still work).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-m4"); // member: the stats page lives in the hamburger menu
+// T11 re-run: member job from Home, no scroll — 3 taps, as in the
+// baseline: open the menu, open the stats page, back to Home.
+const fix5Start = Date.now();
+const fix5Home = await page.evaluate(() => ({
+  attention: document.body.innerText.includes("What needs my attention"),
+  fits: document.documentElement.scrollHeight <= 844,
+  homeTab: !!document.querySelector('#tabs [data-tab="home"]'),
+}));
+check("27a: T11 — member Home still shows 'What needs my attention' and fits one screen (no scroll)", fix5Home.attention && fix5Home.fits && fix5Home.homeTab, JSON.stringify(fix5Home));
+await page.click('[data-action="menu-open"]');
+await sleep(300);
+const fix5Menu = await page.evaluate(() => ({
+  labels: [...document.querySelectorAll("#menu [data-action='tab']")].map((b) => b.innerText.trim()),
+  bodyHasDashboard: document.body.innerText.includes("Dashboard"),
+}));
+check("27b: menu entry reads 'My stats', no menu entry reads 'Dashboard', no 'Dashboard' anywhere on screen", fix5Menu.labels.includes("My stats") && !fix5Menu.labels.includes("Dashboard") && !fix5Menu.bodyHasDashboard, JSON.stringify(fix5Menu));
+check("27c: no other member menu label changed", JSON.stringify(fix5Menu.labels) === JSON.stringify(["My stats", "My history", "Equipment", "My data"]), JSON.stringify(fix5Menu.labels));
+await page.click('#menu [data-action="tab"][data-tab="dashboard"]');
+await sleep(300);
+const fix5Page = await page.evaluate(() => ({
+  h1: document.querySelector("#view h1") ? document.querySelector("#view h1").innerText : "",
+  text: document.querySelector("#view").innerText,
+}));
+check("27d: stats page heading is 'My stats' with the same stats (Calls I’m on / Covered by me)", fix5Page.h1 === "My stats" && fix5Page.text.includes("Calls I’m on") && fix5Page.text.includes("Covered by me (last 30 days)"), fix5Page.text.slice(0, 200));
+check("27e: no 'Dashboard' text anywhere on the stats page", !fix5Page.text.includes("Dashboard") && !fix5Page.text.includes("dashboard"), fix5Page.text.slice(0, 200));
+// Back to Home (tap 3): attention list unchanged.
+await goTab("home");
+const fix5BackHome = await text();
+check("27f: back on Home — attention list unchanged, tab still 'Home'", fix5BackHome.includes("What needs my attention") && !fix5BackHome.includes("Dashboard"), fix5BackHome.slice(0, 200));
+// Org section: the coordinator's page shows the org stats under a
+// renamed sub-heading, with the same numbers.
+await setRole("u-coord");
+await goTab("dashboard");
+const fix5Org = await page.evaluate(() => ({
+  h1: document.querySelector("#view h1") ? document.querySelector("#view h1").innerText : "",
+  text: document.querySelector("#view").innerText,
+}));
+check("27g: coordinator page — 'My stats' heading, org section renamed to 'Organisation stats (last 30 days)' with the same numbers", fix5Org.h1 === "My stats" && fix5Org.text.includes("Organisation stats (last 30 days)") && fix5Org.text.includes("Open calls") && fix5Org.text.includes("Covered calls") && fix5Org.text.includes("Total calls") && !fix5Org.text.includes("Dashboard"), fix5Org.text.slice(0, 300));
+// Regression: role switcher still works and tabs match the role.
+await page.click('[data-action="menu-open"]');
+await sleep(200);
+await page.select("#role-switch", "u-disp");
+await sleep(250);
+const fix5Role = await page.evaluate(() => ({
+  tabs: [...document.querySelectorAll("#tabs [data-tab]")].map((b) => b.dataset.tab),
+}));
+check("27h: role switch via the hamburger still works — dispatcher tabs are Home/Calls/New call/Requests", JSON.stringify(fix5Role.tabs) === JSON.stringify(["home", "calls", "new", "requests"]), JSON.stringify(fix5Role));
+const fix5Secs = Math.round((Date.now() - fix5Start) / 1000);
+console.log("T11 re-run (Fix 5): " + fix5Secs + "s wall, 3 scripted taps, 0 errors — baseline ~1 min, 3 taps, 0 errors");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));

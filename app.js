@@ -851,7 +851,7 @@ function allTabs() {
   tabs.push(["equipment", "Equipment"]);
   if (Store.can("manage-inventory") || Store.can("manage-members")) tabs.push(["manage", "Manage"]);
   tabs.push(["contacts", "Contacts"]);
-  tabs.push(["dashboard", "Dashboard"]);
+  tabs.push(["dashboard", "My stats"]);
   if (Store.can("reports")) tabs.push(["reports", "Reports"]);
   if (Store.can("approve-hidden")) tabs.push(["requests", "Requests"]);
   tabs.push(["history", "My history"]);
@@ -1415,7 +1415,7 @@ function viewDashboard() {
   var inMonth = function (c) { return new Date(c.createdAt).getTime() > now - month; };
   var myCalls = Store.state.calls.filter(function (c) { return Store.isResponding(c, me.id); });
   var myCovered = Store.state.calls.filter(function (c) { return c.status === "closed" && inMonth(c) && Store.isResponding(c, me.id); }).length;
-  var h = "<h1>Dashboard</h1><h2>My dashboard</h2><dl class=\"kv\">" +
+  var h = "<h1>My stats</h1><dl class=\"kv\">" +
     "<dt>Calls I’m on</dt><dd>" + myCalls.length + "</dd>" +
     "<dt>Covered by me (last 30 days)</dt><dd>" + myCovered + " — covered means I responded and the call then closed</dd></dl>";
   if (Store.can("org-dashboard")) {
@@ -1424,7 +1424,7 @@ function viewDashboard() {
     var openM = callsM.filter(function (c) { return c.status === "open"; }).length;
     var prevCovered = Store.state.calls.filter(function (c) { var t = new Date(c.createdAt).getTime(); return c.status === "closed" && c.responders.length && t <= now - month && t > now - 2 * month; }).length;
     var cmp = coveredM > prevCovered ? "ABOVE average" : (coveredM < prevCovered ? "BELOW average" : "AT average");
-    h += "<h2>Organisation dashboard (last 30 days)</h2><dl class=\"kv\">" +
+    h += "<h2>Organisation stats (last 30 days)</h2><dl class=\"kv\">" +
       "<dt>Open calls</dt><dd>" + openM + "</dd>" +
       "<dt>Covered calls</dt><dd>" + coveredM + " (" + cmp + " — previous 30 days: " + prevCovered + ")</dd>" +
       "<dt>Total calls</dt><dd>" + callsM.length + "</dd></dl>";

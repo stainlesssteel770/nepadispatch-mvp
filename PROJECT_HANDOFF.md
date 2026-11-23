@@ -35,7 +35,9 @@ Q2 — checkmark button label "Correct" → "Close" (UI/UX test v2, Finding 6, s
 
 Fix 3 — responder ETA on the list card (UI/UX test v2, Finding 3, sev 2; owner-approved 2026-11-23, Batch B): each responder pill on the Calls list card now carries that responder's ETA — "PA-05 · 20 min"; a dispatcher-assigned member with no ETA shows "PA-05 · ETA —", so the absence is explicit rather than blank. The call detail keeps "ETA 20 min" as now. PUSHED 2026-11-23 (commit cc3a6118) and live-verified; `?v=20261123-fix3`, 232/232 smoke checks. See "Fix 3 — ETA on card — 2026-11-23" below.
 
-Fix 4 — backup recipients (UI/UX test v2, Finding 4, sev 2; owner-approved 2026-11-23, Batch B): requesting backup now names who was told — the call detail lists the alerted people by name ("NEEDED — alerted: Rivka Coordinator, Dana Dispatcher, Moishe Member, Yossi Member, Levi Member and Shmuel Member"), and the banner adds a second line naming the roles ("Backup requested — all coordinators, dispatchers and members alerted"), both computed live from Store.alertTargets() (everyone except super admin). Toast, "Backup NEEDED" badge and backup-request button unchanged. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix4`, 239/239 smoke checks. See "Fix 4 — backup recipients — 2026-11-23" below.
+Fix 4 — backup recipients (UI/UX test v2, Finding 4, sev 2; owner-approved 2026-11-23, Batch B): requesting backup now names who was told — the call detail lists the alerted people by name ("NEEDED — alerted: Rivka Coordinator, Dana Dispatcher, Moishe Member, Yossi Member, Levi Member and Shmuel Member"), and the banner adds a second line naming the roles ("Backup requested — all coordinators, dispatchers and members alerted"), both computed live from Store.alertTargets() (everyone except super admin). Toast, "Backup NEEDED" badge and backup-request button unchanged. PUSHED 2026-11-23 (commit cb4e3f13) and live-verified; `?v=20261123-fix4`, 239/239 smoke checks. See "Fix 4 — backup recipients — 2026-11-23" below.
+
+Fix 5 — rename Dashboard to My stats (UI/UX test v2, Finding 5, sev 2; owner-approved 2026-11-23, Batch C): the hamburger-menu page is now "My stats" — menu entry, page heading, and the coordinator org sub-heading ("Organisation stats (last 30 days)"); the stats themselves, bottom-nav Home, and every other menu label are unchanged. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix5`, 247/247 smoke checks. See "Fix 5 — rename Dashboard — 2026-11-23" below.
 
 ## Architecture
 
@@ -1769,4 +1771,63 @@ scripted wall, 2 scripted taps, 0 errors.
 
 `index.html` asset version bumped `?v=20261123-fix3` →
 `?v=20261123-fix4` (styles.css, seed.js, app.js, and the SW cache
+name matches). PUSHED 2026-11-23 (commit cb4e3f13) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
+
+## Fix 5 — rename Dashboard — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 5,
+severity 2 — bottom-nav Home ("What needs my attention") and the
+hamburger-menu Dashboard (stats only) were two different pages with
+confusingly similar jobs. Owner-approved 2026-11-23, Batch C (small,
+separate commits).
+
+### Change (app.js, three label sites — no logic change)
+
+- Menu entry (`allTabs()`): `["dashboard", "My stats"]` — the tab id
+  stays "dashboard" (internal only), so `goTab("dashboard")` and the
+  section-15b menu-id checks are untouched.
+- Page heading (`viewDashboard()`): `<h1>Dashboard</h1><h2>My
+  dashboard</h2>` → `<h1>My stats</h1>` — the h2 was a redundant
+  duplicate of the h1, so it was dropped rather than renamed; the
+  stats (Calls I'm on / Covered by me (last 30 days)) follow
+  immediately as before.
+- Org sub-heading on the same page (coordinators,
+  `Store.can("org-dashboard")`): "Organisation dashboard (last 30
+  days)" → "Organisation stats (last 30 days)", with the same Open /
+  Covered / Total numbers.
+- Left as-is (not user-facing labels): the `dashboard` tab id, the
+  `viewDashboard()` function name, the `org-dashboard` permission
+  key, and the word "dashboard" in a styles.css comment. The
+  PROJECT_HANDOFF decision-log mentions of "Dashboard" are
+  historical records of the decided concept and were left unchanged.
+
+### Tests
+
+New smoke section 27 (8 checks): 27a T11 re-run — member Home still
+shows "What needs my attention" and fits one screen (no scroll); 27b
+menu entry reads "My stats", no menu entry reads "Dashboard", no
+"Dashboard" anywhere on screen; 27c no other member menu label
+changed (["My stats", "My history", "Equipment", "My data"] — group
+order, Activity first); 27d stats page heading is "My stats" with
+the same stats; 27e no "Dashboard" text anywhere on the stats page;
+27f back on Home — attention list unchanged; 27g coordinator page —
+org section renamed with the same numbers; 27h regression — role
+switch via the hamburger still works (dispatcher tabs Home/Calls/New
+call/Requests). Failing-test-first: on the pre-fix tree the run was
+242/247 with only 27b, 27c, 27d, 27e and 27g failing (27a, 27f, 27h
+already passed); after the fix, **247/247 passed**, zero page
+errors. The 20b SW checks hardcode the version token, so they were
+bumped to `20261123-fix5` with the rest. (One correction during the
+failing run: the 27c expectation first assumed menu order
+[Equipment, My stats, …]; the actual group order is Activity first,
+so the expected list is ["My stats", "My history", "Equipment", "My
+data"].)
+
+T11 re-run (Fix 5) vs baseline (~1 min, 3 taps, 0 errors): 3s
+scripted wall, 3 scripted taps, 0 errors.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fix4` →
+`?v=20261123-fix5` (styles.css, seed.js, app.js, and the SW cache
 name matches). PUSHED 2026-11-23 and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
