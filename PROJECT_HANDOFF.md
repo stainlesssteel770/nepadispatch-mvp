@@ -31,6 +31,8 @@ Fix 2 — toasts no longer cover the card action bars (UI/UX test v2, Finding 2,
 
 Q1 — reopen restores backup (UI/UX test v2, Finding 10, sev 2; owner decision 2026-11-23, Option A, Batch A): closeCall stashed `backupNeeded` in `backupWasNeeded` before clearing it; reopenCall restores the flag and re-creates the backup alert, so Undo and detail Reopen both bring the BACKUP NEEDED badge and banner back. Closed calls still never surface in the banner (D2). NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fixq1`, 220/220 smoke checks. See "Q1 — reopen restores backup — 2026-11-23" below.
 
+Q2 — checkmark button label "Correct" → "Close" (UI/UX test v2, Finding 6, sev 2; owner decision 2026-11-23, Option B, Batch A): the card action-bar button now reads "Close" (checkmark ✓ kept); the choice toast still asks the outcome (Corrected / Not corrected / Cancelled), ~8s Undo unchanged, full 7-outcome dialog unchanged. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fixq2`, 226/226 smoke checks. See "Q2 — "Correct" → "Close" label — 2026-11-23" below.
+
 ## Architecture
 
 Plain HTML/CSS/JS, no build step, no framework, no network calls.
@@ -1603,5 +1605,57 @@ wall, 11 scripted taps (T5 core close→Undo→close = 5 taps), 0 errors.
 
 `index.html` asset version bumped `?v=20261123-fix2` →
 `?v=20261123-fixq1` (styles.css, seed.js, app.js, and the SW cache
+name matches). NOT YET PUSHED — the parent agent verifies and
+pushes; live-verification (md5) still to be done after the push.
+
+## Q2 — "Correct" → "Close" label — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 6,
+severity 2 — the checkmark button was labelled "Correct", which a
+first-timer can read as "mark correct" rather than "close the call"
+(the toast "Close INC-… as…" clarified only after the tap). Owner
+decision 2026-11-23, Option B: label it "Close", checkmark kept,
+outcome asked in the toast as now. Added to Batch A as its own
+commit, after the backup-restore fix.
+
+### Change (app.js, one line + one comment)
+
+- The card action-bar button's visible label is now "Close"
+  (`<span>Close</span>` in `callCard`); the checkmark icon, the
+  `data-action="correct-call"` hook, the `act-correct` class, and the
+  aria-label ("Close this call as Corrected") are unchanged.
+- The choice toast, its three outcome buttons (Corrected / Not
+  corrected / Cancelled), the ✕ dismiss, the ~8s Undo, and the full
+  7-outcome close dialog are unchanged. Outcome names stay
+  "Corrected" / "Not corrected" — only the button label changes.
+- The 5-icon bar comment in `callCard` now reads "Add, Backup,
+  Close, Call, Maps". Remaining "Correct" strings in app.js are
+  code comments and the internal `Store.closeCorrect` method name
+  only — nothing user-visible.
+
+### Tests
+
+New smoke section 24 (6 checks): 24a checkmark button's visible
+label is "Close" on open calls; 24b no action-bar button still reads
+"Correct"; 24c Close tap shows "Close INC-1043 as…" with Corrected /
+Not corrected / Cancelled + ✕ and the call stays open; 24d picking
+Corrected closes with Undo; 24e Undo reopens; 24f Close again after
+Undo closes as Corrected. Existing section 11/15d/18 check names
+that described the button as "Correct" were renamed to "Close" (they
+assert via `data-action`, not the label). Failing-test-first: on the
+pre-fix tree the run was 224/226 with only 24a and 24b failing;
+after the fix, **226/226 passed**, zero page errors. The 20b SW
+checks hardcode the version token, so they were bumped to
+`20261123-fixq2` with the rest (the SW itself was already serving
+the new cache — the stale token was the only failure; one run also
+died in ~14s on a transient Chrome launch failure, clean on retry).
+
+T5 re-run (Q2) vs baseline (~3 min, ~6 taps, 0 errors): 4s scripted
+wall, 5 scripted taps, 0 errors.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fixq1` →
+`?v=20261123-fixq2` (styles.css, seed.js, app.js, and the SW cache
 name matches). NOT YET PUSHED — the parent agent verifies and
 pushes; live-verification (md5) still to be done after the push.

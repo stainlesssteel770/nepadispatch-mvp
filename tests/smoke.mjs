@@ -256,9 +256,9 @@ await sleep(400);
 const persistOk = await page.evaluate(() => DispatchStore.state.calls.length === 5);
 check("state persists across reload", persistOk);
 
-// 11. Correct button with confirm step (state is fresh seed again:
+// 11. Close button with confirm step (state is fresh seed again:
 // c1 open with equipment out, c2 open with nothing out; signed in
-// as dispatcher). Tapping Correct now pops a toast asking which
+// as dispatcher). Tapping Close now pops a toast asking which
 // outcome — Corrected / Not corrected / Cancelled — instead of
 // closing instantly.
 // (a) open call with no equipment out -> choices toast, call stays
@@ -266,7 +266,7 @@ check("state persists across reload", persistOk);
 await setRole("u-disp");
 await goTab("calls");
 const correctVisible = await page.evaluate(() => [...document.querySelectorAll('[data-action="correct-call"]')].length);
-check("Correct button shown to dispatcher on open calls", correctVisible === 2, "count=" + correctVisible);
+check("Close button shown to dispatcher on open calls", correctVisible === 2, "count=" + correctVisible);
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
@@ -281,14 +281,14 @@ const choicesShown = await page.evaluate(() => {
     stillOpen: DispatchStore.call("c2").status === "open",
   };
 });
-check("Correct tap shows the 3-choice confirm toast and does NOT close immediately", !choicesShown.hidden && choicesShown.choices.join("|") === "Corrected|Not corrected|Cancelled" && choicesShown.hasX && choicesShown.stillOpen, JSON.stringify(choicesShown));
+check("Close tap shows the 3-choice confirm toast and does NOT close immediately", !choicesShown.hidden && choicesShown.choices.join("|") === "Corrected|Not corrected|Cancelled" && choicesShown.hasX && choicesShown.stillOpen, JSON.stringify(choicesShown));
 await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
 await sleep(400);
 const correctOk = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "closed" && c.outcome === "Corrected"; });
 check("picking Corrected in the toast closes the call as Corrected", correctOk);
 t = await page.evaluate(() => document.querySelector("#toast").innerText);
 const undoAfterPick = await page.evaluate(() => !!document.querySelector("#toast .toast-undo"));
-check("Correct confirmation shown with Undo", /closed as Corrected/.test(t) && undoAfterPick, t);
+check("Close confirmation shown with Undo", /closed as Corrected/.test(t) && undoAfterPick, t);
 // (b) call with equipment out stays open with the return-equipment message
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
@@ -296,16 +296,16 @@ await page.evaluate(() => {
 });
 await sleep(400);
 const eqChoices = await page.evaluate(() => !document.querySelector("#toast").hidden && [...document.querySelectorAll("#toast .toast-choice")].length === 3);
-check("Correct on equipment-out call still asks first (choices toast)", eqChoices);
+check("Close on equipment-out call still asks first (choices toast)", eqChoices);
 await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
 await sleep(400);
 t = await page.evaluate(() => document.querySelector("#toast").innerText);
 const stillOpen = await page.evaluate(() => DispatchStore.call("c1").status === "open");
-check("Correct blocked while equipment out, call stays open", stillOpen && /Equipment must be returned/.test(t), t);
+check("Close blocked while equipment out, call stays open", stillOpen && /Equipment must be returned/.test(t), t);
 // (c) Correct hidden for members (hide, don't disable)
 await setRole("u-m4");
 const correctHidden = await page.evaluate(() => [...document.querySelectorAll('[data-action="correct-call"]')].length);
-check("Correct button hidden for members", correctHidden === 0, "count=" + correctHidden);
+check("Close button hidden for members", correctHidden === 0, "count=" + correctHidden);
 
 // 12. Whole-card tap + Add member (state reset to fresh seed: c1 open
 // with equipment out, c2 open with nothing out)
@@ -759,7 +759,7 @@ await page.evaluate(() => window.scrollTo(0, 0)); await sleep(200);
 const firstTop = await page.evaluate(() => { const c = document.querySelector(".call-card"); return c ? Math.round(c.getBoundingClientRect().top) : null; });
 check("15c: first call card top is within the first screen (<500px)", firstTop !== null && firstTop < 500, "firstCardTop=" + firstTop);
 
-// (15d) Correct confirm toast: tap asks first, picking Corrected
+// (15d) Close confirm toast: tap asks first, picking Corrected
 // closes and shows a real Undo button; Undo restores the call
 await goTab("calls");
 await page.evaluate(() => {
@@ -771,7 +771,7 @@ const choicesInfo = await page.evaluate(() => {
   const tEl = document.querySelector("#toast");
   return { hidden: tEl.hidden, choices: [...tEl.querySelectorAll(".toast-choice")].map((b) => b.innerText), stillOpen: DispatchStore.call("c2").status === "open" };
 });
-check("15d: Correct tap shows the confirm toast and the call stays open", !choicesInfo.hidden && choicesInfo.choices.join("|") === "Corrected|Not corrected|Cancelled" && choicesInfo.stillOpen, JSON.stringify(choicesInfo));
+check("15d: Close tap shows the confirm toast and the call stays open", !choicesInfo.hidden && choicesInfo.choices.join("|") === "Corrected|Not corrected|Cancelled" && choicesInfo.stillOpen, JSON.stringify(choicesInfo));
 await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
 await sleep(400);
 const undoInfo = await page.evaluate(() => {
@@ -1118,7 +1118,7 @@ await setRole("u-m4");
 ct = await cardText("INC-1039");
 check("17f: non-responder still sees the hidden line on the closed card", !ct.includes("555-0104") && !ct.includes("Dana Demo") && ct.includes("Caller hidden after close"), ct.slice(0, 200));
 
-// 18. Correct confirm toast + respond on the card (owner-approved,
+// 18. Close confirm toast + respond on the card (owner-approved,
 // Nov 17 evening).
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 await page.reload({ waitUntil: "networkidle0" });
@@ -1127,7 +1127,7 @@ await setRole("u-disp");
 await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
 await goTab("calls");
 
-// (18a) Correct tap shows the 3-choice toast; × dismisses it, call stays open.
+// (18a) Close tap shows the 3-choice toast; × dismisses it, call stays open.
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
@@ -1137,7 +1137,7 @@ let toastInfo = await page.evaluate(() => {
   const tEl = document.querySelector("#toast");
   return { hidden: tEl.hidden, choices: [...tEl.querySelectorAll(".toast-choice")].map((b) => b.innerText), hasX: !!tEl.querySelector(".toast-x"), stillOpen: DispatchStore.call("c2").status === "open" };
 });
-check("18a: Correct tap shows Corrected / Not corrected / Cancelled + ×, call stays open", !toastInfo.hidden && toastInfo.choices.join("|") === "Corrected|Not corrected|Cancelled" && toastInfo.hasX && toastInfo.stillOpen, JSON.stringify(toastInfo));
+check("18a: Close tap shows Corrected / Not corrected / Cancelled + ×, call stays open", !toastInfo.hidden && toastInfo.choices.join("|") === "Corrected|Not corrected|Cancelled" && toastInfo.hasX && toastInfo.stillOpen, JSON.stringify(toastInfo));
 await page.evaluate(() => { document.querySelector("#toast .toast-x").click(); });
 await sleep(300);
 toastInfo = await page.evaluate(() => ({ hidden: document.querySelector("#toast").hidden, stillOpen: DispatchStore.call("c2").status === "open" }));
@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fixq1"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fixq1", "app.js?v=20261123-fixq1", "seed.js?v=20261123-fixq1", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fixq2"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fixq2", "app.js?v=20261123-fixq2", "seed.js?v=20261123-fixq2", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -2129,6 +2129,65 @@ const q1None = await page.evaluate(() => {
 check("23e: reopening a call that never needed backup restores no badge", q1None.open && !q1None.flag && !q1None.badge && !q1None.alert, JSON.stringify(q1None));
 const q1Secs = Math.round((Date.now() - q1Start) / 1000);
 console.log("T5 re-run (Q1): " + q1Secs + "s wall, 11 scripted taps (T5 core close→Undo→close = 5 taps), 0 errors — baseline ~3 min, ~6 taps, 0 errors");
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 24. Q2 — checkmark button label "Correct" -> "Close" (v2 test,
+// Finding 6, sev 2; owner decision 2026-11-23, Option B: label it
+// "Close", checkmark kept, outcome asked in the toast as now).
+// Outcome names stay "Corrected" / "Not corrected" — only the
+// button label changes. T5 baseline: ~3 min, ~6 taps, 0 errors.
+const q2Start = Date.now();
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+// (a) the checkmark button's visible label is "Close" on open calls
+const q2Labels = await page.evaluate(() => [...document.querySelectorAll('[data-action="correct-call"]')].map((b) => b.querySelector("span").innerText.trim()));
+check("24a: checkmark button's visible label is 'Close' on open calls", q2Labels.length === 2 && q2Labels.every((t) => t === "Close"), JSON.stringify(q2Labels));
+// (b) no action-bar button still reads "Correct"
+const q2Stale = await page.evaluate(() => [...document.querySelectorAll(".card-bar .bar-seg span")].map((s) => s.innerText.trim()).filter((t) => t === "Correct").length);
+check("24b: no action-bar button still reads 'Correct'", q2Stale === 0, "count=" + q2Stale);
+// (c) tap the renamed Close button -> choice toast asks the outcome,
+// call stays open; pick Corrected -> closes with Undo; Undo reopens;
+// tap Close again -> toast again, pick Corrected -> closes.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+const q2Toast = await page.evaluate(() => {
+  const tEl = document.querySelector("#toast");
+  return {
+    hidden: tEl.hidden,
+    msg: tEl.innerText,
+    choices: [...tEl.querySelectorAll(".toast-choice")].map((b) => b.innerText),
+    hasX: !!tEl.querySelector(".toast-x"),
+    stillOpen: DispatchStore.call("c2").status === "open",
+  };
+});
+check("24c: Close tap shows 'Close INC-1043 as…' with Corrected / Not corrected / Cancelled + ×, call stays open", !q2Toast.hidden && /Close INC-1043 as/.test(q2Toast.msg) && q2Toast.choices.join("|") === "Corrected|Not corrected|Cancelled" && q2Toast.hasX && q2Toast.stillOpen, JSON.stringify(q2Toast));
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
+await sleep(400);
+const q2Closed = await page.evaluate(() => {
+  const c = DispatchStore.call("c2");
+  return { closed: c.status === "closed" && c.outcome === "Corrected", undo: !!document.querySelector("#toast .toast-undo") };
+});
+check("24d: picking Corrected closes the call and shows Undo", q2Closed.closed && q2Closed.undo, JSON.stringify(q2Closed));
+await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
+await sleep(400);
+const q2Reopened = await page.evaluate(() => DispatchStore.call("c2").status === "open");
+check("24e: Undo reopens the call", q2Reopened);
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
+await sleep(400);
+const q2ClosedAgain = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "closed" && c.outcome === "Corrected"; });
+check("24f: Close again after Undo closes the call as Corrected", q2ClosedAgain);
+const q2Secs = Math.round((Date.now() - q2Start) / 1000);
+console.log("T5 re-run (Q2): " + q2Secs + "s wall, 5 scripted taps, 0 errors — baseline ~3 min, ~6 taps, 0 errors");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));

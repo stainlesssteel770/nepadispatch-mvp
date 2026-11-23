@@ -700,7 +700,7 @@ var ICONS = {
 var TAB_ICON = { home: "home", calls: "list", new: "plus", requests: "inbox", contacts: "users", manage: "gear", equipment: "wrench", dashboard: "chart", reports: "file", history: "clock", data: "database" };
 // Call card, reference layout: big address + incident/time on top,
 // icon-led rows (what / phone / notes), responder pills, then a
-// 5-icon action bar — Add, Backup, Correct, Call, Maps. Only the
+// 5-icon action bar — Add, Backup, Close, Call, Maps. Only the
 // actions the signed-in role may use are shown (hide, don't disable).
 // Town for a call card's side strip (closed cards): the part of the
 // address before the state ("100 Main St, Kingston, PA" -> "Kingston").
@@ -760,7 +760,7 @@ function callCard(c) {
       : '<button class="bar-seg" data-action="backup-request" data-id="' + c.id + '" aria-label="Request backup">' + ICONS.bell + "<span>Backup</span></button>";
   }
   if (isOpen && Store.can("close")) {
-    bar += '<button class="bar-seg act-correct" data-action="correct-call" data-id="' + c.id + '" aria-label="Close this call as Corrected">' + ICONS.check + "<span>Correct</span></button>";
+    bar += '<button class="bar-seg act-correct" data-action="correct-call" data-id="' + c.id + '" aria-label="Close this call as Corrected">' + ICONS.check + "<span>Close</span></button>";
   }
   if (canSee) {
     bar += '<a class="bar-seg" href="tel:' + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + '" aria-label="Call the caller back">' + ICONS.phone + "<span>Call</span></a>";
