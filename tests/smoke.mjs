@@ -1082,10 +1082,10 @@ check("17a: draft card is gray — card-draft, gray pin, gray strip, no town tex
 // blue strip with the town, white pill with blue unit-code text.
 ds = await cardStyle("INC-1039");
 check("17b: closed card is blue — card-closed, blue border, bright blue pin, blue strip with KINGSTON", ds && ds.cls.includes("card-closed") && ds.border === "rgb(37, 99, 235)" && ds.pin === "rgb(77, 141, 255)" && ds.stripBg === "rgb(37, 99, 235)" && ds.stripTown === "Kingston" && ds.stripTownUpper === "uppercase", JSON.stringify(ds));
-check("17b: closed responder pill is white with blue text, unit code PA-09", ds && ds.pillTexts.includes("PA-09") && ds.pillBg === "rgb(255, 255, 255)" && ds.pillColor === "rgb(29, 78, 216)", JSON.stringify(ds));
+check("17b: closed responder pill is white with blue text, unit code PA-09", ds && ds.pillTexts.some((t) => t.startsWith("PA-09")) && ds.pillBg === "rgb(255, 255, 255)" && ds.pillColor === "rgb(29, 78, 216)", JSON.stringify(ds));
 // (17c) Open INC-1042 responder pill shows the unit code, not the name.
 ds = await cardStyle("INC-1042");
-check("17c: open responder pill shows unit code PA-05 (not the name)", ds && ds.pillTexts.includes("PA-05") && !ds.pillTexts.includes("Moishe"), JSON.stringify(ds));
+check("17c: open responder pill shows unit code PA-05 (not the name)", ds && ds.pillTexts.some((t) => t.startsWith("PA-05")) && !ds.pillTexts.some((t) => t.includes("Moishe")), JSON.stringify(ds));
 // (17d) Member without a unit code falls back to their first name.
 const zedId = await page.evaluate(() => { const r = DispatchStore.addMember("Zed Member", "555-0199", "member", false); return r.ok ? r.member.id : ("ERR:" + r.error); });
 await page.evaluate((id) => { DispatchStore.assign("c1", id); }, zedId);
@@ -1094,7 +1094,7 @@ await sleep(400);
 await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
 await goTab("calls");
 ds = await cardStyle("INC-1042");
-check("17d: member without a unit code shows first-name pill 'Zed' beside PA-05", ds && ds.pillTexts.includes("Zed") && ds.pillTexts.includes("PA-05"), JSON.stringify(ds));
+check("17d: member without a unit code shows first-name pill 'Zed' beside PA-05", ds && ds.pillTexts.some((t) => t.startsWith("Zed")) && ds.pillTexts.some((t) => t.startsWith("PA-05")), JSON.stringify(ds));
 // (17e) Closed call with no parseable town: plain blue strip, no text.
 const noTownInc = await page.evaluate(() => {
   const r = DispatchStore.createCall({ nature: "Other", address: "5 Nowhere Rd", callerName: "No Town", callerPhone: "555-0112" }, "key-notown-1");
@@ -1235,7 +1235,7 @@ const goodEta = await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
   const c = cards.find((x) => x.innerText.includes("INC-1043"));
   const r = DispatchStore.call("c2").responders.find((x) => x.userId === "u-m4");
-  return { responding: !!r && r.eta === "25 min", pill: [...c.querySelectorAll(".pills .pill")].map((p) => p.textContent).includes("PA-21"), rowGone: !c.querySelector(".card-respond"), toast: document.querySelector("#toast").innerText };
+  return { responding: !!r && r.eta === "25 min", pill: [...c.querySelectorAll(".pills .pill")].map((p) => p.textContent).some((t) => t.startsWith("PA-21")), rowGone: !c.querySelector(".card-respond"), toast: document.querySelector("#toast").innerText };
 });
 check("18g: valid ETA responds from the card — PA-21 pill, control gone, toast shown", goodEta.responding && goodEta.pill && goodEta.rowGone && /You are responding/.test(goodEta.toast), JSON.stringify(goodEta));
 
@@ -1462,7 +1462,7 @@ const pillUnits = await page.evaluate(() => {
   const c = cards.find((x) => x.innerText.includes("INC-1042"));
   return c ? [...c.querySelectorAll(".pills .pill")].map((p) => p.textContent) : [];
 });
-check("19-6: migrated unit codes render as responder pills (PA-05 on INC-1042)", pillUnits.includes("PA-05"), JSON.stringify(pillUnits));
+check("19-6: migrated unit codes render as responder pills (PA-05 on INC-1042)", pillUnits.some((t) => t.startsWith("PA-05")), JSON.stringify(pillUnits));
 await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.indexOf("dispatch-mvp-state") === 0);
   const st = JSON.parse(localStorage.getItem(key));
@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fixq2"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fixq2", "app.js?v=20261123-fixq2", "seed.js?v=20261123-fixq2", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix3"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix3", "app.js?v=20261123-fix3", "seed.js?v=20261123-fix3", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -2188,6 +2188,120 @@ const q2ClosedAgain = await page.evaluate(() => { const c = DispatchStore.call("
 check("24f: Close again after Undo closes the call as Corrected", q2ClosedAgain);
 const q2Secs = Math.round((Date.now() - q2Start) / 1000);
 console.log("T5 re-run (Q2): " + q2Secs + "s wall, 5 scripted taps, 0 errors — baseline ~3 min, ~6 taps, 0 errors");
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 25. Fix 3 — responder ETA on the list card (v2 test, Finding 3,
+// sev 2; Batch B). T2 baseline: ~1 min, ~4 taps, 0 errors (garbage
+// ETA "abc" correctly rejected inline). On the Calls list card, next
+// to each responder pill, show that responder's ETA where one exists
+// ("PA-05 · 20 min"); a dispatcher-assigned member with no ETA shows
+// "ETA —" on the card. The detail keeps "ETA 20 min" as now.
+const fix3Start = Date.now();
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+// (a) seed responder with an ETA: INC-1042 already shows it on the card
+const fix3Seed = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1042"));
+  return c ? [...c.querySelectorAll(".pills .pill")].map((p) => p.textContent.trim()) : [];
+});
+check("25a: seed responder's ETA shows on the card — 'PA-05 · 15 min'", fix3Seed.includes("PA-05 · 15 min"), JSON.stringify(fix3Seed));
+// (b) T2 re-run: member responds from the card with ETA 20 — the
+// pill on the card shows the ETA without opening the detail, and
+// the detail shows the same ETA.
+await setRole("u-m2");
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const input = cards.find((c) => c.innerText.includes("INC-1043")).querySelector(".card-eta");
+  input.value = ""; input.focus();
+});
+await page.keyboard.type("20");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="card-respond"]').click();
+});
+await sleep(400);
+const fix3Card = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1043"));
+  const r = DispatchStore.call("c2").responders.find((x) => x.userId === "u-m2");
+  return { pills: c ? [...c.querySelectorAll(".pills .pill")].map((p) => p.textContent.trim()) : [], eta: r ? r.eta : null };
+});
+check("25b: responding with ETA 20 shows 'PA-09 · 20 min' on the list card", fix3Card.pills.includes("PA-09 · 20 min") && fix3Card.eta === "20 min", JSON.stringify(fix3Card));
+await openCard("INC-1043");
+await sleep(300);
+const fix3Detail = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+check("25b: detail shows the same ETA ('Yossi Member (ETA 20 min)')", /Yossi Member \(ETA 20 min\)/.test(fix3Detail), fix3Detail.slice(0, 300));
+await page.click('[data-action="close-dialog"]');
+await sleep(200);
+// (c) dispatcher assigns a member with no ETA — the card shows "ETA —"
+await setRole("u-disp");
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="add-member"]').click();
+});
+await sleep(300);
+await page.evaluate(() => { document.querySelector('#dlg-body [data-action="assign-member"]').click(); });
+await sleep(400);
+const fix3Assigned = await page.evaluate(() => {
+  const c2 = DispatchStore.call("c2");
+  const assigned = c2.responders.find((r) => r.eta === "—");
+  const u = assigned ? DispatchStore.user(assigned.userId) : null;
+  const cards = [...document.querySelectorAll(".card")];
+  const card = cards.find((x) => x.innerText.includes("INC-1043"));
+  const pills = card ? [...card.querySelectorAll(".pills .pill")].map((p) => p.textContent.trim()) : [];
+  return { unit: u ? u.unit : null, pills };
+});
+await page.click('[data-action="close-dialog"]').catch(() => {});
+await sleep(200);
+check("25c: dispatcher-assigned member shows 'ETA —' on the card", !!fix3Assigned.unit && fix3Assigned.pills.includes(fix3Assigned.unit + " · ETA —"), JSON.stringify(fix3Assigned));
+// (d) layout at 390px: two ETA pills must not push the action bar
+// off screen or overflow the card.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((x) => x.innerText.includes("INC-1043")).scrollIntoView({ block: "center" });
+});
+await sleep(300);
+const fix3Layout = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1043"));
+  const bar = c.querySelector(".card-bar");
+  const cr = c.getBoundingClientRect(), br = bar.getBoundingClientRect();
+  return {
+    docW: document.documentElement.scrollWidth,
+    cardOverflow: c.scrollWidth - c.clientWidth,
+    barRight: Math.round(br.right), cardRight: Math.round(cr.right),
+    barInView: br.top >= 0 && br.bottom <= window.innerHeight,
+  };
+});
+check("25d: two ETA pills — no page/card overflow, action bar fully inside the card and on screen at 390px", fix3Layout.docW <= 390 && fix3Layout.cardOverflow <= 1 && fix3Layout.barRight <= fix3Layout.cardRight + 1 && fix3Layout.barInView, JSON.stringify(fix3Layout));
+// (e) regression: garbage ETA "abc" still shows the inline error
+// and records no response.
+await setRole("u-m2");
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector(".card-eta").focus();
+});
+await page.keyboard.type("abc");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="card-respond"]').click();
+});
+await sleep(400);
+const fix3Bad = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1042"));
+  const err = c.querySelector(".card-eta-error");
+  return { errShown: err && !err.hidden && /Enter an ETA like 15 min/.test(err.innerText), notResponding: !DispatchStore.isResponding(DispatchStore.call("c1"), "u-m2"), noDlg: !document.querySelector("#dlg").open };
+});
+check("25e: 'abc' ETA shows inline error, no response recorded, no dialog", fix3Bad.errShown && fix3Bad.notResponding && fix3Bad.noDlg, JSON.stringify(fix3Bad));
+const fix3Secs = Math.round((Date.now() - fix3Start) / 1000);
+console.log("T2 re-run (Fix 3): " + fix3Secs + "s wall, ~5 scripted taps, 0 errors — baseline ~1 min, ~4 taps, 0 errors");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));

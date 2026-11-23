@@ -746,8 +746,17 @@ function callCard(c) {
   if (c.status === "draft") badges.push('<span class="badge draft">DRAFT</span>');
   if (c.status === "closed") badges.push('<span class="badge closed">CLOSED — ' + esc(outcomeLabel(c.outcome)) + '</span>');
   var time = new Date(c.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  // Fix 3 (2026-11-23, v2 Finding 3): the responder's ETA rides on
+  // the pill — "PA-05 · 20 min". Dispatcher-assigned members have
+  // no ETA (r.eta is "—"), so the absence is explicit: "PA-05 · ETA —".
+  // A responder record without an eta field (legacy stored state)
+  // reads the same way.
   var pills = c.responders.length
-    ? c.responders.map(function (r) { var u = Store.user(r.userId); return '<span class="pill">' + esc(responderLabel(u)) + "</span>"; }).join("")
+    ? c.responders.map(function (r) {
+        var u = Store.user(r.userId);
+        var etaText = (r.eta && r.eta !== "—") ? r.eta : "ETA —";
+        return '<span class="pill">' + esc(responderLabel(u)) + " · " + esc(etaText) + "</span>";
+      }).join("")
     : '<span class="pill dim">No one yet</span>';
   var mapsUrl = c.mapsLink || ("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(c.address));
   var bar = '<div class="card-bar">';

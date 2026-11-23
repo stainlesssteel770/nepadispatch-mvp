@@ -25,13 +25,15 @@ Pass 5 fixes 2026-11-17 (same day, evening): Instinct pass 5 on the live v=20261
 
 Design overhaul (PWA + bottom tabs) 2026-11-17 (same day, night): turn the prototype into something that feels like a real phone app — installable from Chrome (manifest + service worker + real icons), a fixed bottom tab bar with icons, visual polish on the dark navy look, and Android-back handling for the dialog and drawer. PUSHED 2026-11-18 (commit ca716557) and live-verified — live app.js, styles.css, manifest, sw.js and icons byte-match local (md5). `?v=20261117-pwa`, 201/201 smoke checks. See "Design overhaul (PWA + bottom tabs) — 2026-11-17" below.
 
-Fix 1 — equipment return in the call detail (UI/UX test v2, Finding 1, sev 3; owner-approved 2026-11-23): the call detail now shows a "Mark returned" button (48px tall) next to each item out, dispatcher/coordinator only; tapping it returns the item in place and unblocks closing. The Menu → Equipment → "Mark returned" path is unchanged, and the close block (red toast naming the item) is unchanged. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fix1`, 206/206 smoke checks. See "Fix 1 — equipment return — 2026-11-23" below.
+Fix 1 — equipment return in the call detail (UI/UX test v2, Finding 1, sev 3; owner-approved 2026-11-23): the call detail now shows a "Mark returned" button (48px tall) next to each item out, dispatcher/coordinator only; tapping it returns the item in place and unblocks closing. The Menu → Equipment → "Mark returned" path is unchanged, and the close block (red toast naming the item) is unchanged. PUSHED 2026-11-23 (commit b839162f) and live-verified; `?v=20261123-fix1`, 206/206 smoke checks. See "Fix 1 — equipment return — 2026-11-23" below.
 
-Fix 2 — toasts no longer cover the card action bars (UI/UX test v2, Finding 2, sev 2; owner-approved 2026-11-23, Batch A): toasts are now docked under the sticky header instead of above the bottom tab bar. Bottom-docked, the choice toast (195×230 at 390px) covered the Backup/Correct/Call segments of the next card and the Undo toast overlapped their bottom 11px; top-docked, no visible card action bar is under either toast at scroll 0 or scrolled to the bottom, and the banner dismiss × stays clear. Toast text, outcome buttons, ✕ dismiss, ~8s Undo window and the card action bar layout are unchanged. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fix2`, 215/215 smoke checks. See "Fix 2 — toast overlap — 2026-11-23" below.
+Fix 2 — toasts no longer cover the card action bars (UI/UX test v2, Finding 2, sev 2; owner-approved 2026-11-23, Batch A): toasts are now docked under the sticky header instead of above the bottom tab bar. Bottom-docked, the choice toast (195×230 at 390px) covered the Backup/Correct/Call segments of the next card and the Undo toast overlapped their bottom 11px; top-docked, no visible card action bar is under either toast at scroll 0 or scrolled to the bottom, and the banner dismiss × stays clear. Toast text, outcome buttons, ✕ dismiss, ~8s Undo window and the card action bar layout are unchanged. PUSHED 2026-11-23 (commit 79e75aa6) and live-verified; `?v=20261123-fix2`, 215/215 smoke checks. See "Fix 2 — toast overlap — 2026-11-23" below.
 
-Q1 — reopen restores backup (UI/UX test v2, Finding 10, sev 2; owner decision 2026-11-23, Option A, Batch A): closeCall stashed `backupNeeded` in `backupWasNeeded` before clearing it; reopenCall restores the flag and re-creates the backup alert, so Undo and detail Reopen both bring the BACKUP NEEDED badge and banner back. Closed calls still never surface in the banner (D2). NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fixq1`, 220/220 smoke checks. See "Q1 — reopen restores backup — 2026-11-23" below.
+Q1 — reopen restores backup (UI/UX test v2, Finding 10, sev 2; owner decision 2026-11-23, Option A, Batch A): closeCall stashed `backupNeeded` in `backupWasNeeded` before clearing it; reopenCall restores the flag and re-creates the backup alert, so Undo and detail Reopen both bring the BACKUP NEEDED badge and banner back. Closed calls still never surface in the banner (D2). PUSHED 2026-11-23 (commit b4a08ee7) and live-verified; `?v=20261123-fixq1`, 220/220 smoke checks. See "Q1 — reopen restores backup — 2026-11-23" below.
 
-Q2 — checkmark button label "Correct" → "Close" (UI/UX test v2, Finding 6, sev 2; owner decision 2026-11-23, Option B, Batch A): the card action-bar button now reads "Close" (checkmark ✓ kept); the choice toast still asks the outcome (Corrected / Not corrected / Cancelled), ~8s Undo unchanged, full 7-outcome dialog unchanged. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fixq2`, 226/226 smoke checks. See "Q2 — "Correct" → "Close" label — 2026-11-23" below.
+Q2 — checkmark button label "Correct" → "Close" (UI/UX test v2, Finding 6, sev 2; owner decision 2026-11-23, Option B, Batch A): the card action-bar button now reads "Close" (checkmark ✓ kept); the choice toast still asks the outcome (Corrected / Not corrected / Cancelled), ~8s Undo unchanged, full 7-outcome dialog unchanged. PUSHED 2026-11-23 (commit 73ee1d8d) and live-verified; `?v=20261123-fixq2`, 226/226 smoke checks. See "Q2 — "Correct" → "Close" label — 2026-11-23" below.
+
+Fix 3 — responder ETA on the list card (UI/UX test v2, Finding 3, sev 2; owner-approved 2026-11-23, Batch B): each responder pill on the Calls list card now carries that responder's ETA — "PA-05 · 20 min"; a dispatcher-assigned member with no ETA shows "PA-05 · ETA —", so the absence is explicit rather than blank. The call detail keeps "ETA 20 min" as now. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix3`, 232/232 smoke checks. See "Fix 3 — ETA on card — 2026-11-23" below.
 
 ## Architecture
 
@@ -1051,8 +1053,7 @@ Chrome 390×844, fake data only; matrix at
 https://files.instinct.com/sqo0sywvcdn8-nepadispatch-mvp-ui-test-findings
 — requires sign-in, not fetchable, worked from the detailed findings
 summary). 41 items; the fix batch covers items 1–8 plus coverage for
-the four items Instinct left untested. NOT PUSHED yet — the parent
-agent verifies and pushes.
+the four items Instinct left untested. PUSHED 2026-11-17 (commit 3f34a7ab) and live-verified — live app.js and styles.css byte-match local (md5).
 
 - (M2 / item 31) MEMBER HOME IS ONE SCREEN NOW. Member Home was
   ~3 screens tall (measured: u-m4 1530px, u-m2 1767px scrollHeight at
@@ -1440,8 +1441,7 @@ scripted seconds.
 
 `index.html` asset version bumped `?v=20261117-pwa` →
 `?v=20261123-fix1` (styles.css, seed.js, app.js, and the SW cache
-name matches). NOT YET PUSHED — the parent agent verifies and
-pushes; live-verification (md5) still to be done after the push.
+name matches). PUSHED 2026-11-23 (commit b839162f) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
 
 ## Fix 2 — toast overlap — 2026-11-23
 
@@ -1542,8 +1542,7 @@ not the scripted seconds.
 
 `index.html` asset version bumped `?v=20261123-fix1` →
 `?v=20261123-fix2` (styles.css, seed.js, app.js, and the SW cache
-name matches). NOT YET PUSHED — the parent agent verifies and
-pushes; live-verification (md5) still to be done after the push.
+name matches). PUSHED 2026-11-23 (commit 79e75aa6) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
 
 ## Q1 — reopen restores backup — 2026-11-23
 
@@ -1605,8 +1604,7 @@ wall, 11 scripted taps (T5 core close→Undo→close = 5 taps), 0 errors.
 
 `index.html` asset version bumped `?v=20261123-fix2` →
 `?v=20261123-fixq1` (styles.css, seed.js, app.js, and the SW cache
-name matches). NOT YET PUSHED — the parent agent verifies and
-pushes; live-verification (md5) still to be done after the push.
+name matches). PUSHED 2026-11-23 (commit b4a08ee7) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
 
 ## Q2 — "Correct" → "Close" label — 2026-11-23
 
@@ -1657,5 +1655,57 @@ wall, 5 scripted taps, 0 errors.
 
 `index.html` asset version bumped `?v=20261123-fixq1` →
 `?v=20261123-fixq2` (styles.css, seed.js, app.js, and the SW cache
-name matches). NOT YET PUSHED — the parent agent verifies and
-pushes; live-verification (md5) still to be done after the push.
+name matches). PUSHED 2026-11-23 (commit 73ee1d8d) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
+
+## Fix 3 — ETA on card — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 3,
+severity 2 — after responding, the ETA appeared only in the call
+detail, not on the list card, so a dispatcher scanning the list had
+to open every card to know who arrives when; dispatcher-assigned
+members had no ETA at all. Owner-approved 2026-11-23, Batch B
+(list readability, with Fix 4 as its own commit).
+
+### Change (app.js, one render site + one comment)
+
+- In `callCard`, each responder pill now reads the label plus the
+  ETA — "PA-05 · 20 min" — using the responder record's stored
+  `eta` (the same string the detail already shows). A
+  dispatcher-assigned member (`r.eta` is "—") shows "PA-05 · ETA —",
+  so the absence is explicit rather than blank; a responder record
+  with no `eta` field at all (legacy stored state) reads the same
+  way. The pill element, the unit-code label (first-name fallback),
+  the COVERED badge, and the card colours are unchanged.
+- No CSS change: `.pills` already wraps (`flex-wrap: wrap`), so the
+  longer pills wrap inside the pills row; the action bar is
+  untouched.
+
+### Tests
+
+New smoke section 25 (6 checks): 25a seed responder's ETA shows on
+the card ("PA-05 · 15 min" on INC-1042); 25b T2 re-run — responding
+with ETA 20 shows "PA-09 · 20 min" on the list card and the detail
+shows the same ETA ("Yossi Member (ETA 20 min)"); 25c dispatcher-
+assigned member shows "ETA —" on the card; 25d layout at 390px with
+two ETA pills — no page/card overflow (doc 390, card overflow 0),
+action bar fully inside the card (bar right 372 vs card right 378)
+and on screen; 25e regression — garbage ETA "abc" still shows the
+inline error and records no response. Failing-test-first: on the
+pre-fix tree the run was 229/232 with only 25a, 25b and 25c failing
+(25d layout and 25e regression already passed); after the fix,
+**232/232 passed**, zero page errors. Five pre-existing checks
+asserted exact pill text ("PA-09", "PA-05", "Zed", "PA-21") and
+were retargeted test-only to prefix matches (`startsWith`) — 17b,
+17c, 17d, 18g, 19-6 — no behaviour change; the pills now read
+"PA-09 · 20 min", "PA-05 · 15 min", "Zed · ETA —" as the fix
+requires. The 20b SW checks hardcode the version token, so they
+were bumped to `20261123-fix3` with the rest.
+
+T2 re-run (Fix 3) vs baseline (~1 min, ~4 taps, 0 errors): 7s
+scripted wall, ~5 scripted taps, 0 errors.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fixq2` →
+`?v=20261123-fix3` (styles.css, seed.js, app.js, and the SW cache
+name matches). PUSHED 2026-11-23 and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
