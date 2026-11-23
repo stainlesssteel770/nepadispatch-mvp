@@ -18,6 +18,11 @@ function uid(prefix) { return prefix + "-" + Date.now().toString(36) + Math.floo
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function nowISO() { return new Date().toISOString(); }
 function fmtDT(s) { if (!s) return "—"; var d = new Date(s); return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}); }
+// Join ["a", "b", "c"] as "a, b and c" (one item: "a"; two: "a and b").
+function joinAnd(items) {
+  if (items.length <= 1) return items.join("");
+  return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
+}
 function $(sel) { return document.querySelector(sel); }
 // Toasts: success/info hide after ~3.5s; errors (toastErr) stay 8s and
 // dismiss on tap, so validation feedback is never missed. The toast
@@ -320,6 +325,20 @@ var Store = {
     return false;
   },
   alertTargets: function () { return this.state.users.filter(function (u) { return u.role !== "super-admin"; }); },
+  // Fix 4 (v2 test, Finding 4): who a backup request actually alerts —
+  // everyone in the chapter except super admin (alertTargets). The call
+  // detail names the people; the banner names their roles instead
+  // (names don't fit the one-line banner). Both are computed from
+  // alertTargets, so the wording can never drift from who is actually
+  // alerted.
+  backupRecipientNames: function () {
+    return this.alertTargets().map(function (u) { return u.name; });
+  },
+  backupRecipientRoles: function () {
+    var roles = [];
+    this.alertTargets().forEach(function (u) { if (roles.indexOf(u.role) === -1) roles.push(u.role); });
+    return roles;
+  },
 
   /* ----- calls ----- */
   createCall: function (data, idemKey) {
@@ -989,7 +1008,13 @@ function render() {
       banner.hidden = false;
       banner.className = "alert-banner" + (visible.some(function (a) { return a.urgent; }) ? " urgent" : "");
       banner.innerHTML = '<button type="button" class="banner-x" data-action="dismiss-banner" aria-label="Dismiss announcements">✕</button>' +
-        '<div class="banner-line">' + esc(visible[0].text) + (visible.length > 1 ? ' <span class="muted">+' + (visible.length - 1) + " more</span>" : "") + "</div>";
+        '<div class="banner-line">' + esc(visible[0].text) + (visible.length > 1 ? ' <span class="muted">+' + (visible.length - 1) + " more</span>" : "") + "</div>" +
+        // Fix 4 (v2 test, Finding 4): when the most recent live alert
+        // is a backup request, name who was told — the roles, from
+        // alertTargets (names don't fit the one-line banner; the full
+        // names are on the call detail). A backup alert for another
+        // call is not the line shown, so no sub-line for it.
+        (visible[0].kind === "backup" ? '<div class="banner-sub">Backup requested — all ' + esc(joinAnd(Store.backupRecipientRoles().map(function (r) { return r + "s"; }))) + " alerted</div>" : "");
     } else banner.hidden = true;
   }
   var v = $("#view");
@@ -1253,7 +1278,7 @@ function callDetailHTML(c) {
     h += "<dt>Your request</dt><dd>" + reqText + "</dd>";
   }
   h += "<dt>Responding</dt><dd>" + (c.responders.length ? c.responders.map(function (r) { return userName(r.userId) + " (ETA " + esc(r.eta) + ")"; }).join(", ") : "No one yet") + "</dd>";
-  h += "<dt>Backup</dt><dd>" + (c.backupNeeded ? "NEEDED" : "Not needed") + "</dd>";
+  h += "<dt>Backup</dt><dd>" + (c.backupNeeded ? "NEEDED — alerted: " + esc(joinAnd(Store.backupRecipientNames())) : "Not needed") + "</dd>";
   // Equipment out (Fix 1, v2 test): one row per item, with a Return
   // control for dispatcher/coordinator right here — no more hunting
   // through Menu → Equipment to do what the block toast just asked

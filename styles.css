@@ -124,6 +124,10 @@ header {
 .alert-banner { position: relative; padding: 10px 48px 10px 16px; font-weight: 700; background: #fff3cd; border-bottom: 2px solid var(--amber); color: #5c3d00; font-size: .92rem; }
 .alert-banner.urgent { background: #fde2e2; border-color: var(--red); color: #7a1f16; }
 .banner-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Fix 4 (v2 test, Finding 4): second banner line naming who a backup
+   request alerted. Wraps normally (unlike .banner-line) so the roles
+   always fit at 390px; the dismiss ✕ stays vertically centred. */
+.banner-sub { font-size: .82rem; font-weight: 600; margin-top: 2px; }
 .banner-x { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-width: 44px; min-height: 44px; background: transparent; border: none; font-size: 1.15rem; font-weight: 800; line-height: 1; color: inherit; cursor: pointer; }
 .warn { padding: 9px 16px; background: #fff8e6; border-bottom: 1px solid #e8c87a; font-size: .88rem; font-weight: 600; color: #5c3d00; }
 

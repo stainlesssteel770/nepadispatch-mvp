@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix3"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix3", "app.js?v=20261123-fix3", "seed.js?v=20261123-fix3", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix4"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix4", "app.js?v=20261123-fix4", "seed.js?v=20261123-fix4", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -2302,6 +2302,89 @@ const fix3Bad = await page.evaluate(() => {
 check("25e: 'abc' ETA shows inline error, no response recorded, no dialog", fix3Bad.errShown && fix3Bad.notResponding && fix3Bad.noDlg, JSON.stringify(fix3Bad));
 const fix3Secs = Math.round((Date.now() - fix3Start) / 1000);
 console.log("T2 re-run (Fix 3): " + fix3Secs + "s wall, ~5 scripted taps, 0 errors — baseline ~1 min, ~4 taps, 0 errors");
+// 26. Fix 4 — name who was told when backup is requested (v2 test,
+// Finding 4, sev 2; Batch B). T4 baseline: ~1 min, 2 taps, 0 errors
+// (the gap was Finding 4, not a task failure). The call detail names
+// the alerted people; the banner names their roles — everyone in the
+// chapter except super admin (Store.alertTargets). Toast, badge and
+// button are unchanged.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+// T4 re-run: Moishe (u-m1) already responds to INC-1042 in the seed,
+// so the backup button is on the detail — 2 taps, as in the baseline:
+// open the call, request backup.
+await setRole("u-m1");
+await goTab("calls");
+const fix4Start = Date.now();
+await openCard("INC-1042");
+await page.evaluate(() => { document.querySelector('#dlg-body [data-action="backup-request"]').click(); });
+await sleep(400);
+const fix4TaskSecs = Math.round((Date.now() - fix4Start) / 1000);
+// (a) detail names the alerted people; toast wording unchanged
+const fix4Detail = await page.evaluate(() => ({
+  dlg: document.querySelector("#dlg-body").innerText,
+  toast: document.querySelector("#toast").textContent,
+}));
+check("26a: detail names who was alerted — 'NEEDED — alerted: Rivka Coordinator, … and Shmuel Member'", /NEEDED — alerted: Rivka Coordinator, Dana Dispatcher, Moishe Member, Yossi Member, Levi Member and Shmuel Member/.test(fix4Detail.dlg), fix4Detail.dlg.slice(0, 400));
+check("26b: toast unchanged — 'Backup requested — everyone alerted.'", fix4Detail.toast === "Backup requested — everyone alerted.", JSON.stringify(fix4Detail.toast));
+// (c) banner names the roles while the backup alert is the most recent
+const fix4Banner = await page.evaluate(() => {
+  const b = document.querySelector("#alert-banner");
+  return { hidden: b.hidden, text: b.innerText };
+});
+check("26c: banner names the roles — 'Backup requested — all coordinators, dispatchers and members alerted'", !fix4Banner.hidden && fix4Banner.text.includes("BACKUP NEEDED on INC-1042") && fix4Banner.text.includes("Backup requested — all coordinators, dispatchers and members alerted"), JSON.stringify(fix4Banner).slice(0, 300));
+// (d) BACKUP NEEDED badge still on the card
+await closeDlg();
+const fix4Badge = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1042"));
+  return c ? c.innerText.includes("BACKUP NEEDED") : false;
+});
+check("26d: 'BACKUP NEEDED' badge still appears on the card", fix4Badge);
+// (e) reload — backup state and recipient text persist
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await goTab("calls");
+const fix4AfterReload = await page.evaluate(() => {
+  const b = document.querySelector("#alert-banner");
+  return { bannerHidden: b.hidden, bannerText: b.innerText, backupNeeded: DispatchStore.call("c1").backupNeeded };
+});
+await openCard("INC-1042");
+await sleep(300);
+const fix4ReloadDetail = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+check("26e: after reload, backup state + recipients text persist (detail and banner)", fix4AfterReload.backupNeeded && !fix4AfterReload.bannerHidden && fix4AfterReload.bannerText.includes("all coordinators, dispatchers and members alerted") && /NEEDED — alerted: Rivka Coordinator/.test(fix4ReloadDetail), JSON.stringify(fix4AfterReload).slice(0, 200));
+await closeDlg();
+// (f) regression: backup on a second call leaves the first call's
+// backup state unchanged
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1043");
+await page.evaluate(() => { document.querySelector('#dlg-body [data-action="backup-request"]').click(); });
+await sleep(400);
+const fix4Second = await page.evaluate(() => ({
+  secondDetail: document.querySelector("#dlg-body").innerText,
+  firstStillNeeded: DispatchStore.call("c1").backupNeeded,
+}));
+await closeDlg();
+await openCard("INC-1042");
+await sleep(300);
+const fix4FirstDetail = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+await closeDlg();
+check("26f: backup on INC-1043 leaves INC-1042's backup state + recipients unchanged", fix4Second.firstStillNeeded && /NEEDED — alerted: Rivka Coordinator/.test(fix4Second.secondDetail) && /NEEDED — alerted: Rivka Coordinator/.test(fix4FirstDetail), JSON.stringify(fix4Second).slice(0, 200));
+// (g) fit at 390px: banner sub-line and detail never overlap another
+// control or push the page sideways (most recent alert is the
+// INC-1043 backup alert, so the sub-line is showing)
+const fix4Fit = await page.evaluate(() => {
+  const b = document.querySelector("#alert-banner");
+  const sub = b.querySelector(".banner-sub");
+  const x = b.querySelector(".banner-x");
+  const sr = sub ? sub.getBoundingClientRect() : null;
+  const xr = x ? x.getBoundingClientRect() : null;
+  const br = b.getBoundingClientRect();
+  const overlap = sr && xr && !(sr.right <= xr.left || sr.left >= xr.right || sr.bottom <= xr.top || sr.top >= xr.bottom);
+  return { docW: document.documentElement.scrollWidth, subPresent: !!sub, overlap: !!overlap, subInside: sr ? sr.bottom <= br.bottom + 1 : false };
+});
+check("26g: banner sub-line fits at 390px — no overlap with the dismiss ✕, no page overflow", fix4Fit.subPresent && !fix4Fit.overlap && fix4Fit.subInside && fix4Fit.docW <= 390, JSON.stringify(fix4Fit));
+console.log("T4 re-run (Fix 4): " + fix4TaskSecs + "s wall, 2 scripted taps, 0 errors — baseline ~1 min, 2 taps, 0 errors");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));

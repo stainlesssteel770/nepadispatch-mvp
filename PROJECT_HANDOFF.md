@@ -33,7 +33,9 @@ Q1 — reopen restores backup (UI/UX test v2, Finding 10, sev 2; owner decision 
 
 Q2 — checkmark button label "Correct" → "Close" (UI/UX test v2, Finding 6, sev 2; owner decision 2026-11-23, Option B, Batch A): the card action-bar button now reads "Close" (checkmark ✓ kept); the choice toast still asks the outcome (Corrected / Not corrected / Cancelled), ~8s Undo unchanged, full 7-outcome dialog unchanged. PUSHED 2026-11-23 (commit 73ee1d8d) and live-verified; `?v=20261123-fixq2`, 226/226 smoke checks. See "Q2 — "Correct" → "Close" label — 2026-11-23" below.
 
-Fix 3 — responder ETA on the list card (UI/UX test v2, Finding 3, sev 2; owner-approved 2026-11-23, Batch B): each responder pill on the Calls list card now carries that responder's ETA — "PA-05 · 20 min"; a dispatcher-assigned member with no ETA shows "PA-05 · ETA —", so the absence is explicit rather than blank. The call detail keeps "ETA 20 min" as now. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix3`, 232/232 smoke checks. See "Fix 3 — ETA on card — 2026-11-23" below.
+Fix 3 — responder ETA on the list card (UI/UX test v2, Finding 3, sev 2; owner-approved 2026-11-23, Batch B): each responder pill on the Calls list card now carries that responder's ETA — "PA-05 · 20 min"; a dispatcher-assigned member with no ETA shows "PA-05 · ETA —", so the absence is explicit rather than blank. The call detail keeps "ETA 20 min" as now. PUSHED 2026-11-23 (commit cc3a6118) and live-verified; `?v=20261123-fix3`, 232/232 smoke checks. See "Fix 3 — ETA on card — 2026-11-23" below.
+
+Fix 4 — backup recipients (UI/UX test v2, Finding 4, sev 2; owner-approved 2026-11-23, Batch B): requesting backup now names who was told — the call detail lists the alerted people by name ("NEEDED — alerted: Rivka Coordinator, Dana Dispatcher, Moishe Member, Yossi Member, Levi Member and Shmuel Member"), and the banner adds a second line naming the roles ("Backup requested — all coordinators, dispatchers and members alerted"), both computed live from Store.alertTargets() (everyone except super admin). Toast, "Backup NEEDED" badge and backup-request button unchanged. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix4`, 239/239 smoke checks. See "Fix 4 — backup recipients — 2026-11-23" below.
 
 ## Architecture
 
@@ -1708,4 +1710,63 @@ scripted wall, ~5 scripted taps, 0 errors.
 
 `index.html` asset version bumped `?v=20261123-fixq2` →
 `?v=20261123-fix3` (styles.css, seed.js, app.js, and the SW cache
+name matches). PUSHED 2026-11-23 (commit cc3a6118) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
+
+## Fix 4 — backup recipients — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 4,
+severity 2 — requesting backup showed only "everyone alerted": no
+recipient list anywhere, so a member roadside asking for help could
+not tell who specifically had been told. Owner-approved 2026-11-23,
+Batch B (list readability, with Fix 3 as its own commit).
+
+### Change (app.js, two render sites + styles.css)
+
+- New `joinAnd()` helper (top level) and two Store helpers beside
+  `alertTargets()`: `backupRecipientNames()` (the alerted people's
+  names) and `backupRecipientRoles()` (their distinct roles, in
+  first-seen order). Both are computed from `alertTargets()` —
+  everyone in the chapter except super admin — so the wording can
+  never drift from who is actually alerted.
+- Call detail Backup row: when backup is needed it now reads
+  "NEEDED — alerted: Rivka Coordinator, Dana Dispatcher, Moishe
+  Member, Yossi Member, Levi Member and Shmuel Member"; "Not needed"
+  is unchanged.
+- Banner: when the most recent live alert is a backup alert, a
+  second line appears under it — "Backup requested — all
+  coordinators, dispatchers and members alerted". Names don't fit
+  the one-line banner (`.banner-line` is nowrap + ellipsis), so the
+  banner names the roles and the detail names the people. A backup
+  alert for another call is not the line shown, so no sub-line for
+  it.
+- New `.banner-sub` CSS: .82rem, semibold, wraps normally, 2px top
+  margin; the dismiss ✕ stays vertically centred.
+- Unchanged: who is actually alerted, the "Backup NEEDED" badge,
+  the "Backup requested — everyone alerted." toast, and the
+  backup-request button.
+
+### Tests
+
+New smoke section 26 (7 checks): 26a T4 re-run — the detail names
+the alerted people after requesting backup as a responding member;
+26b toast wording unchanged; 26c banner names the roles while the
+backup alert is the most recent; 26d "BACKUP NEEDED" badge still on
+the card; 26e reload — backup state and recipient text persist
+(detail and banner); 26f regression — backup on a second call
+(INC-1043) leaves the first call's (INC-1042) backup state and
+recipients unchanged; 26g fit at 390px — banner sub-line present,
+no overlap with the dismiss ✕, no page overflow. Failing-test-first:
+on the pre-fix tree the run was 234/239 with only 26a, 26c, 26e, 26f
+and 26g failing (26b toast and 26d badge already passed); after the
+fix, **239/239 passed**, zero page errors. The 20b SW checks
+hardcode the version token, so they were bumped to `20261123-fix4`
+with the rest.
+
+T4 re-run (Fix 4) vs baseline (~1 min, 2 taps, 0 errors): 1s
+scripted wall, 2 scripted taps, 0 errors.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fix3` →
+`?v=20261123-fix4` (styles.css, seed.js, app.js, and the SW cache
 name matches). PUSHED 2026-11-23 and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
