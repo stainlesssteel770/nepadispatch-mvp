@@ -426,6 +426,11 @@ dialog::backdrop { background: rgba(10, 20, 40, .55); }
 .foot { max-width: 760px; margin: 0 auto 24px; padding: 0 12px; color: var(--mute); font-size: .84rem; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: .96rem; }
 .kv dt { font-weight: 700; color: var(--mute); } .kv dd { margin: 0; }
+/* Equipment-out rows in the call detail (Fix 1): one row per item
+   out, with its own Return button. The button is 48px tall (the
+   Android-first bar) even though .btn.small is 44px. */
+.equip-out-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0; flex-wrap: wrap; }
+.equip-out-row .btn.small { min-height: 48px; }
 .attention { background: #fff8e6; border: 1px solid #e8a13a; border-radius: var(--radius); padding: 14px; margin: 12px 0; box-shadow: 0 2px 8px rgba(10, 20, 40, .08); }
 
 /* ----- narrow tables: stack wide tables into labelled cards so no

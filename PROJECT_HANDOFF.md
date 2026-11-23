@@ -23,7 +23,9 @@ Confirm toast + respond on card 2026-11-17 (same day, evening): owner-approved a
 
 Pass 5 fixes 2026-11-17 (same day, evening): Instinct pass 5 on the live v=20261117-batchb prototype (phone-size desktop Chrome, fake data only, 41 items) — headline: member Home was ~3 screens tall, drafts visible to members, privacy requests gave no feedback on the call detail, stale closed-call copy, urgent banner went stale after close, and all 7 seed members showed no unit code on devices with pre-unit stored state; plus contrast, phone-link and new-call-preservation polish, and smoke coverage for the four items Instinct left untested. PUSHED 2026-11-17 (commit 3f34a7ab) and live-verified — live app.js and styles.css byte-match local (md5). `?v=20261117-pass5`, 183/183 smoke checks. See "Pass 5 fixes — 2026-11-17" below.
 
-Design overhaul (PWA + bottom tabs) 2026-11-17 (same day, night): turn the prototype into something that feels like a real phone app — installable from Chrome (manifest + service worker + real icons), a fixed bottom tab bar with icons, visual polish on the dark navy look, and Android-back handling for the dialog and drawer. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261117-pwa`, 201/201 smoke checks locally. See "Design overhaul (PWA + bottom tabs) — 2026-11-17" below.
+Design overhaul (PWA + bottom tabs) 2026-11-17 (same day, night): turn the prototype into something that feels like a real phone app — installable from Chrome (manifest + service worker + real icons), a fixed bottom tab bar with icons, visual polish on the dark navy look, and Android-back handling for the dialog and drawer. PUSHED 2026-11-18 (commit ca716557) and live-verified — live app.js, styles.css, manifest, sw.js and icons byte-match local (md5). `?v=20261117-pwa`, 201/201 smoke checks. See "Design overhaul (PWA + bottom tabs) — 2026-11-17" below.
+
+Fix 1 — equipment return in the call detail (UI/UX test v2, Finding 1, sev 3; owner-approved 2026-11-23): the call detail now shows a "Mark returned" button (48px tall) next to each item out, dispatcher/coordinator only; tapping it returns the item in place and unblocks closing. The Menu → Equipment → "Mark returned" path is unchanged, and the close block (red toast naming the item) is unchanged. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fix1`, 206/206 smoke checks. See "Fix 1 — equipment return — 2026-11-23" below.
 
 ## Architecture
 
@@ -174,6 +176,8 @@ coordinator+), equipment (add/edit, inventory manager+), fleet
 (add/rename/deactivate, coordinator+). Own data persists in
 localStorage, with “Reset to fake seed data”, “Clear all my data”
 (blank slate), and JSON export/import on the My data tab.
+
+**Added 2026-11-23 (owner answers to the UI/UX test v2 open questions):** Q1-A — reopening a call restores the backup request too; close-clears-backup is a BUG, not intended (reopen is settled to restore state as it was). To be fixed as its own item (Batch A). Q2-B — the checkmark button label changes from "Correct" to "Close" (checkmark kept); the confirm toast still asks the outcome (Corrected / Not corrected / Cancelled). To be fixed as its own item (Batch A). Q3 — the builder's 390px browser measurements are enough; no real-phone re-check of the Decided log / first-card top / Home height is needed before calling the fixes done.
 
 ## What was built
 
@@ -1173,8 +1177,7 @@ enforcement; 24h banner aging. Full suite: **183/183 passed**
 Turn the static prototype into something that feels like a real phone
 app: installable from Chrome, a fixed bottom tab bar, and a polish
 pass on the dark navy look. Still static, still fake data only, no
-backend, no real notifications. NOT YET PUSHED — the parent agent
-verifies and pushes.
+backend, no real notifications. PUSHED 2026-11-18 (commit ca716557) and live-verified — live app.js, styles.css, manifest, sw.js and icons byte-match local (md5).
 
 ### 1. PWA — manifest, service worker, real icons
 
@@ -1351,5 +1354,85 @@ the second green run matters). No page errors.
 
 `index.html` asset version bumped `?v=20261117-pass5` →
 `?v=20261117-pwa` (styles.css, seed.js, app.js, and the SW cache
+name matches). PUSHED 2026-11-18 (commit ca716557) and live-verified — live app.js, styles.css, manifest, sw.js and icons byte-match local (md5).
+
+## Fix 1 — equipment return — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 1,
+severity 3 — the top finding: a dispatcher hitting the "equipment
+must be returned" block had no Return control on the screen in
+front of them; return lived only on the Equipment page. Owner
+approved the fix list 2026-11-23 (Batch A: Fix 1 first, then Fix 2,
+backup-restore, label change — one item per commit).
+
+### Change
+
+- `callDetailHTML` (app.js): the "Equipment out" row now renders
+  one `.equip-out-row` per item out — name + a "Mark returned"
+  button (`data-action="return-equipment"`, `data-item` + `data-id`
+  of the call). Shown only when the call is open and the signed-in
+  user can close (dispatcher/coordinator, `Store.can("close")`);
+  hidden for other roles (hide, don't disable).
+- The `return-equipment` action now re-renders the open dialog
+  after a successful return (`openDialog(callDetailHTML(c))`,
+  same pattern as checkout/backup), so the "Equipment out" list
+  updates on the same screen. The Equipment page button carries no
+  `data-id`, so `Store.call(undefined)` is falsy and nothing extra
+  happens there.
+- styles.css: `.equip-out-row` (flex, wrap) and
+  `.equip-out-row .btn.small { min-height: 48px; }` — the
+  Android-first bar; plain `.btn.small` is 44px.
+
+### Not changed
+
+The close block (still blocked while any equipment is out, same
+red toast naming the item); who can take equipment out; the
+equipment list; the close outcomes; the Menu → Equipment →
+"Mark returned" path (same `Store.returnEquipment` underneath).
+
+### Pre-existing time-bomb fixed along the way (not Fix 1)
+
+The suite could not run at all on 2026-11-23: the seeded alerts
+a1/a2 carry fixed Nov-17 timestamps, and the banner hides "call"
+alerts older than 24h — so the banner was empty and section 5's
+backup check plus 15f failed (15f then crashed the suite on the
+missing dismiss button, before section 21 could run). The app
+behaviour was correct (verified by probe: state right, banner
+hidden; `innerText` on a hidden banner still returns its text in
+this Chrome, which is what the section-5 check tripped on).
+Fix: `freshSeed()` now shifts every seeded alert forward so the
+newest lands on now, preserving relative spacing. The 24h rule
+itself is untouched, and 15f's injected 25h-old alert still never
+renders. Side benefit: a demo reset on the owner's phone now opens
+with fresh new-call alerts instead of an empty banner.
+
+### Tests
+
+New smoke section 21 (5 checks): 21a detail shows the control
+("Mark returned", 48px tall, item e2, call c1); 21b tapping it
+removes the item from "Equipment out" on the same screen (dialog
+stays open, list reads "None", jack in-stock); 21c Equipment page
+shows the same state (IN-STOCK, no Return button); 21d the call
+then closes as Corrected through the checkmark flow with Undo;
+21e regression — fresh seed, close attempted first, still blocked
+with the toast naming "Hydraulic jack". Failing-test-first: on the
+pre-fix tree the run was 202/206 with only 21a–21d failing (21e
+already passed); after the fix, **206/206 passed**, zero page
+errors. The 20b SW checks hardcode the version token, so they were
+bumped to `20261123-fix1` with the rest; 21c's regex went
+case-insensitive (`/in-stock/i`) because the badge renders
+"IN-STOCK" via `text-transform: uppercase`.
+
+T6 re-run (Fix 1) vs baseline (~4 min, ~8 taps, 0 errors, return
+path hard to find): 8s scripted wall, 7 scripted taps, 0 errors —
+4 core taps (open card → Return in detail → checkmark → Corrected)
+plus 3 navigation taps, no Menu → Equipment detour and no role
+switch. The human time saving is the removed hunt, not the
+scripted seconds.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261117-pwa` →
+`?v=20261123-fix1` (styles.css, seed.js, app.js, and the SW cache
 name matches). NOT YET PUSHED — the parent agent verifies and
 pushes; live-verification (md5) still to be done after the push.

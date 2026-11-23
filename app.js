@@ -188,6 +188,18 @@ function freshSeed() {
   s.usedKeys = [];
   s.nextIncident = 1045;
   s.dismissedAlerts = [];
+  // Seeded alerts carry fixed Nov-17 timestamps in seed.js, but the
+  // banner hides "call" alerts older than 24h — so a demo reset days
+  // later would open with an empty banner and the suite's banner
+  // checks (which expect the seeded alerts visible) would fail.
+  // Shift every seeded alert forward so the newest lands on now,
+  // preserving their relative spacing.
+  var latest = 0;
+  (s.alerts || []).forEach(function (a) { var t = new Date(a.at).getTime(); if (isFinite(t) && t > latest) latest = t; });
+  if (latest) {
+    var shift = Date.now() - latest;
+    (s.alerts || []).forEach(function (a) { a.at = new Date(new Date(a.at).getTime() + shift).toISOString(); });
+  }
   return s;
 }
 
@@ -1215,7 +1227,24 @@ function callDetailHTML(c) {
   }
   h += "<dt>Responding</dt><dd>" + (c.responders.length ? c.responders.map(function (r) { return userName(r.userId) + " (ETA " + esc(r.eta) + ")"; }).join(", ") : "No one yet") + "</dd>";
   h += "<dt>Backup</dt><dd>" + (c.backupNeeded ? "NEEDED" : "Not needed") + "</dd>";
-  h += "<dt>Equipment out</dt><dd>" + (c.equipmentOut.length ? c.equipmentOut.map(function (id) { var it = Store.item(id); return it ? esc(it.name) : id; }).join(", ") : "None") + "</dd></dl>";
+  // Equipment out (Fix 1, v2 test): one row per item, with a Return
+  // control for dispatcher/coordinator right here — no more hunting
+  // through Menu → Equipment to do what the block toast just asked
+  // for. Hidden for other roles (hide, don't disable). The button
+  // carries the call id so the handler can re-render this dialog.
+  var equipOutHTML;
+  if (!c.equipmentOut.length) equipOutHTML = "None";
+  else {
+    equipOutHTML = c.equipmentOut.map(function (id) {
+      var it = Store.item(id);
+      var name = it ? esc(it.name) : esc(id);
+      var btn = (c.status === "open" && Store.can("close"))
+        ? '<button class="btn small equip-return" data-action="return-equipment" data-item="' + id + '" data-id="' + c.id + '">Mark returned</button>'
+        : "";
+      return '<span class="equip-out-row"><span>' + name + "</span>" + btn + "</span>";
+    }).join("");
+  }
+  h += "<dt>Equipment out</dt><dd>" + equipOutHTML + "</dd></dl>";
 
   if (c.status === "open") {
     if ((me.role === "member" || me.role === "coordinator") && !responding) {
@@ -1623,7 +1652,12 @@ document.addEventListener("click", function (e) {
     }
     case "deny-request": r = Store.denyHidden(id); if (r.ok) toast("Request denied."); else toastErr(r.error); render(); break;
     case "checkout": r = Store.checkoutEquipment(el.dataset.item, id); if (r.ok) toast("Equipment checked out on this call."); else showError(r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
-    case "return-equipment": r = Store.returnEquipment(el.dataset.item); if (r.ok) toast("Equipment returned to stock."); else toastErr(r.error); render(); break;
+    // Return from the call detail (Fix 1) re-renders the open dialog
+    // so the "Equipment out" list updates on the same screen — same
+    // pattern as checkout/backup. The Equipment page button carries
+    // no data-id, so Store.call(undefined) is falsy and nothing extra
+    // happens there.
+    case "return-equipment": r = Store.returnEquipment(el.dataset.item); if (r.ok) toast("Equipment returned to stock."); else toastErr(r.error); render(); c = Store.call(el.dataset.id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
     case "loan-step": r = Store.advanceLoan(id, el.dataset.step); if (r.ok) toast("Loan marked " + el.dataset.step + "."); else toastErr(r.error); render(); break;
     case "eta-location": {
       var note = $("#eta-note"), etaInput = $("#eta");

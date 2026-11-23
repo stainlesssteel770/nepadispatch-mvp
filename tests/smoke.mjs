@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261117-pwa"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261117-pwa", "app.js?v=20261117-pwa", "seed.js?v=20261117-pwa", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix1"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix1", "app.js?v=20261123-fix1", "seed.js?v=20261123-fix1", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -1802,6 +1802,84 @@ await page.evaluate(() => history.back());
 await sleep(400);
 const gAfter = await page.evaluate(() => document.querySelector("#dlg").open);
 check("20g: after a reload with a dialog open, back still closes a fresh dialog", gOpen && !gAfter, "wasOpen=" + gOpen + " nowOpen=" + gAfter);
+// 21. Fix 1 — equipment-return control in the call detail (v2 test,
+// Finding 1, sev 3). T6 baseline: ~4 min, ~8 taps, 0 errors, return
+// path hard to find (Menu → Equipment). The detail now shows a
+// "Mark returned" button per item out, ≥48px tall; tapping it returns
+// the item in place and unblocks closing.
+const t6Start = Date.now();
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1042");
+await sleep(300);
+// (a) the detail shows a Return control for the item out, ≥48px tall
+const retBtn = await page.evaluate(() => {
+  const b = document.querySelector('#dlg-body [data-action="return-equipment"]');
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return { label: b.innerText.trim(), h: Math.round(r.height), item: b.dataset.item, call: b.dataset.id };
+});
+check("21a: call detail shows a Mark returned control for the item out, ≥48px tall", !!retBtn && retBtn.h >= 48 && retBtn.item === "e2" && retBtn.call === "c1", JSON.stringify(retBtn));
+// (b) tapping it returns the item without leaving the detail
+await page.evaluate(() => { const b = document.querySelector('#dlg-body [data-action="return-equipment"]'); if (b) b.click(); });
+await sleep(400);
+const afterReturn = await page.evaluate(() => {
+  const dts = [...document.querySelectorAll("#dlg-body .kv dt")];
+  const dt = dts.find((d) => d.innerText.trim() === "Equipment out");
+  const dd = dt ? dt.nextElementSibling : null;
+  return {
+    dlgOpen: document.querySelector("#dlg").open,
+    equipOut: dd ? dd.innerText.trim() : null,
+    out: DispatchStore.call("c1").equipmentOut.slice(),
+    inStock: DispatchStore.item("e2").status === "in-stock",
+  };
+});
+check("21b: tapping Return removes the item from Equipment out on the same screen", afterReturn.dlgOpen && afterReturn.equipOut === "None" && afterReturn.out.length === 0 && afterReturn.inStock, JSON.stringify(afterReturn));
+// (c) the Equipment page shows the same state (item back in stock)
+await closeDlg();
+await goTab("equipment");
+const equipState = await page.evaluate(() => {
+  const card = [...document.querySelectorAll(".card")].find((c) => c.innerText.includes("Hydraulic jack"));
+  return card ? { text: card.innerText.replace(/\n/g, " "), hasReturn: !!card.querySelector('[data-action="return-equipment"]') } : null;
+});
+check("21c: Equipment page shows the jack back in stock (same state)", !!equipState && /in-stock/i.test(equipState.text) && !equipState.hasReturn, JSON.stringify(equipState));
+// (d) the same call now closes as Corrected through the checkmark flow, Undo appears
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { const ch = [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected"); if (ch) ch.click(); });
+await sleep(400);
+const fix1Closed = await page.evaluate(() => {
+  const c = DispatchStore.call("c1");
+  const tEl = document.querySelector("#toast");
+  return { closed: c.status === "closed" && c.outcome === "Corrected", undo: !tEl.hidden && !!tEl.querySelector(".toast-undo") };
+});
+check("21d: after the detail return, the call closes as Corrected with Undo", fix1Closed.closed && fix1Closed.undo, JSON.stringify(fix1Closed));
+// (e) regression: with equipment out, closing is still blocked and the
+// toast names the item — fresh seed, try to close FIRST.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { const ch = [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected"); if (ch) ch.click(); });
+await sleep(400);
+const blocked = await page.evaluate(() => ({
+  stillOpen: DispatchStore.call("c1").status === "open",
+  toast: document.querySelector("#toast").innerText,
+}));
+check("21e: close still blocked while equipment out, toast names the item", blocked.stillOpen && /Equipment must be returned before closing: Hydraulic jack/.test(blocked.toast), JSON.stringify(blocked));
+const t6Secs = Math.round((Date.now() - t6Start) / 1000);
+console.log("T6 re-run (Fix 1): " + t6Secs + "s wall, 7 scripted taps, 0 errors — baseline ~4 min, ~8 taps, 0 errors");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
