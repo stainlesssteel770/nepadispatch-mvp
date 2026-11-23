@@ -668,19 +668,24 @@ var Store = {
   },
 
   /* ----- history suggestions (offered, never auto-selected) ----- */
-  // History suggestions from past calls at the same address or from the
-  // same phone number. Excluded addresses drive NO history suggestions.
+  // Address-history suggestions from past calls: the address of a past
+  // call from the same phone number, or a past address the typed text
+  // starts. Excluded addresses drive NO history suggestions. Only
+  // addresses are ever suggested here — never a call nature or any
+  // value from another field (Fix 6: the box used to offer the nature
+  // of past calls at this address / phone, e.g. "Flat Tire", under the
+  // address field, where it read as an address suggestion).
   historySuggestions: function (address, phone) {
     var s = this.state;
     if (address && s.excludedAddresses.indexOf(address) !== -1) return [];
     var out = [];
+    var typed = (address || "").toLowerCase();
     s.calls.forEach(function (c) {
       if (c.status === "draft") return;
-      var byAddr = address && c.address === address && s.excludedAddresses.indexOf(c.address) === -1;
+      if (s.excludedAddresses.indexOf(c.address) !== -1) return;
       var byPhone = phone && c.callerPhone && c.callerPhone.replace(/\D/g, "") === phone.replace(/\D/g, "");
-      if (byAddr || byPhone) {
-        if (out.indexOf(c.nature) === -1) out.push(c.nature);
-      }
+      var byAddr = typed && c.address.toLowerCase().indexOf(typed) === 0 && c.address.toLowerCase() !== typed;
+      if ((byAddr || byPhone) && out.indexOf(c.address) === -1) out.push(c.address);
     });
     return out;
   }
@@ -1905,7 +1910,10 @@ document.addEventListener("input", function (e) {
 document.addEventListener("click", function (e) {
   var b = e.target.closest("[data-suggest]");
   if (!b) return;
-  var sel = $("#nc-nature"); if (sel) sel.value = b.dataset.suggest;
+  // Suggestions are addresses (Fix 6): tapping one fills the address
+  // field, then the box clears — the suggestion is consumed.
+  var addr = $("#nc-address"); if (addr) addr.value = b.dataset.suggest;
+  var box = $("#nc-suggest"); if (box) box.innerHTML = "";
   toast("Suggestion applied: " + b.dataset.suggest);
 });
 

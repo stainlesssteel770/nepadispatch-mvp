@@ -37,7 +37,8 @@ Fix 3 — responder ETA on the list card (UI/UX test v2, Finding 3, sev 2; owner
 
 Fix 4 — backup recipients (UI/UX test v2, Finding 4, sev 2; owner-approved 2026-11-23, Batch B): requesting backup now names who was told — the call detail lists the alerted people by name ("NEEDED — alerted: Rivka Coordinator, Dana Dispatcher, Moishe Member, Yossi Member, Levi Member and Shmuel Member"), and the banner adds a second line naming the roles ("Backup requested — all coordinators, dispatchers and members alerted"), both computed live from Store.alertTargets() (everyone except super admin). Toast, "Backup NEEDED" badge and backup-request button unchanged. PUSHED 2026-11-23 (commit cb4e3f13) and live-verified; `?v=20261123-fix4`, 239/239 smoke checks. See "Fix 4 — backup recipients — 2026-11-23" below.
 
-Fix 5 — rename Dashboard to My stats (UI/UX test v2, Finding 5, sev 2; owner-approved 2026-11-23, Batch C): the hamburger-menu page is now "My stats" — menu entry, page heading, and the coordinator org sub-heading ("Organisation stats (last 30 days)"); the stats themselves, bottom-nav Home, and every other menu label are unchanged. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix5`, 247/247 smoke checks. See "Fix 5 — rename Dashboard — 2026-11-23" below.
+Fix 5 — rename Dashboard to My stats (UI/UX test v2, Finding 5, sev 2; owner-approved 2026-11-23, Batch C): the hamburger-menu page is now "My stats" — menu entry, page heading, and the coordinator org sub-heading ("Organisation stats (last 30 days)"); the stats themselves, bottom-nav Home, and every other menu label are unchanged. PUSHED 2026-11-23 (commit 90e1ae2a) and live-verified; `?v=20261123-fix5`, 247/247 smoke checks. See "Fix 5 — rename Dashboard — 2026-11-23" below.
+Fix 6 — address suggestions (UI/UX test v2, Finding 7, sev 1; owner-approved 2026-11-23, Batch C): the New call address field's history suggestions are now addresses only — `Store.historySuggestions()` returns past-call addresses (same-phone calls, or a past address the typed text starts) instead of call natures, and tapping a suggestion fills the address field; the saved-address datalist and the nature picker are unchanged. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix6`, 255/255 smoke checks. See "Fix 6 — address suggestions — 2026-11-23" below.
 
 ## Architecture
 
@@ -1830,4 +1831,73 @@ scripted wall, 3 scripted taps, 0 errors.
 
 `index.html` asset version bumped `?v=20261123-fix4` →
 `?v=20261123-fix5` (styles.css, seed.js, app.js, and the SW cache
+name matches). PUSHED 2026-11-23 (commit 90e1ae2a) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
+
+## Fix 6 — address suggestions — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 7,
+severity 1 — the New call address field suggested "Flat Tire", a call
+nature, as an address. Owner-approved 2026-11-23, Batch C (small,
+separate commits).
+
+### Root cause
+
+`Store.historySuggestions(address, phone)` collected `c.nature`
+from past calls at the typed address (exact match) or from the same
+phone number, and the `#nc-suggest` box under the address field
+rendered those natures as tappable buttons — so they read as address
+suggestions, and tapping one set the nature dropdown instead of
+filling the address. The saved-address `<datalist>` was already
+addresses-only; the leak was solely the history box.
+
+### Change (app.js — `historySuggestions` + the `[data-suggest]` click handler)
+
+- `historySuggestions()` now returns past-call **addresses**
+  (deduped), never natures:
+  - byPhone: a past non-draft call whose caller phone matches →
+    that call's address.
+  - byAddr: the typed text is a case-insensitive proper prefix of a
+    past call's address → that address (so typing "100 M" suggests
+    "100 Main St, Kingston, PA" from history; typing the full exact
+    address suggests nothing — it is already typed).
+  - Excluded addresses drive no suggestions — the exclusion check
+    now also covers the byPhone path (the old code checked it only
+    for byAddr, although the Manage copy promises excluded
+    addresses stop being suggested from a caller's phone-number
+    history). Drafts still excluded, as before.
+- Tapping a suggestion now fills `#nc-address` with that address
+  and clears the box (the suggestion is consumed); the "Suggestion
+  applied: …" toast is unchanged.
+- Unchanged: the address field, the saved-addresses datalist, the
+  nature picker, the New call flow, the "Exclude this address from
+  history suggestions" checkbox and the Manage excluded-addresses
+  section (all still accurate — they describe address suggestions).
+
+### Tests
+
+New smoke section 28 (8 checks): 28a typing "F" suggests no call
+nature (datalist or box); 28b typing a past call's full address
+("100 Main St, Kingston, PA") never offers its nature; 28c typing
+the start of a saved address still suggests it, no nature appears
+(the box now offers the history address too: "From past calls here:
+100 Main St, Kingston, PA"); 28d a repeat caller's phone
+(555-0101) suggests their past address, never a nature; 28e tapping
+a history suggestion fills the address field with that address;
+28f nature picker still lists all six call natures; 28g regression
+— summary step shows the saved address before confirming; 28h the
+call created with the saved address appears on the list with the
+right town. Failing-test-first: on the pre-fix tree the run was
+252/255 with exactly 28b, 28d and 28e failing — the failure output
+showed the leak verbatim ("From past calls here: Flat Tire"); after
+the fix, **255/255 passed**, zero page errors. The 20b SW checks
+hardcode the version token, so they were bumped to
+`20261123-fix6` with the rest.
+
+T9 re-run (Fix 6) vs baseline (~2 min, 4 taps, 0 errors): 3s
+scripted wall, 4 scripted taps, 0 errors.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fix5` →
+`?v=20261123-fix6` (styles.css, seed.js, app.js, and the SW cache
 name matches). PUSHED 2026-11-23 and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).

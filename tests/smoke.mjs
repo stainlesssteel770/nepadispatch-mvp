@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix5"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix5", "app.js?v=20261123-fix5", "seed.js?v=20261123-fix5", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix6"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix6", "app.js?v=20261123-fix6", "seed.js?v=20261123-fix6", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -2445,6 +2445,82 @@ const fix5Role = await page.evaluate(() => ({
 check("27h: role switch via the hamburger still works — dispatcher tabs are Home/Calls/New call/Requests", JSON.stringify(fix5Role.tabs) === JSON.stringify(["home", "calls", "new", "requests"]), JSON.stringify(fix5Role));
 const fix5Secs = Math.round((Date.now() - fix5Start) / 1000);
 console.log("T11 re-run (Fix 5): " + fix5Secs + "s wall, 3 scripted taps, 0 errors — baseline ~1 min, 3 taps, 0 errors");
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 28. Fix 6 — stop call natures leaking into address suggestions
+// (v2 test, Finding 7, sev 1; Batch C). T9 baseline: ~2 min, 4 taps,
+// 0 errors. The #nc-suggest box under the address field used to offer
+// the NATURE of past calls at that address / phone ("Flat Tire") as
+// tappable buttons — reading as address suggestions. It now offers
+// only past-call ADDRESSES (address history); saved addresses still
+// come from the datalist. Tapping a suggestion fills the address field.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("new");
+const fix6Start = Date.now();
+const NATURES = ["Flat Tire", "Dead Battery / Jump Start", "Lockout", "Out of Fuel", "Tow Needed", "Other"];
+const hasNature = (s) => NATURES.some((n) => s.includes(n));
+// Doc check 1: type "F" — no call nature is suggested anywhere.
+await page.type("#nc-address", "F");
+await sleep(200);
+const fix6F = await page.evaluate(() => ({
+  suggest: document.querySelector("#nc-suggest") ? document.querySelector("#nc-suggest").innerText : "",
+  opts: [...document.querySelectorAll("#addr-list option")].map((o) => o.value),
+}));
+check("28a: typing 'F' in the address field suggests no call nature", !hasNature(fix6F.suggest) && !fix6F.opts.some(hasNature), JSON.stringify(fix6F));
+// The leak, reproduced: type the full address of past calls — pre-fix
+// the box offered their nature ("Flat Tire") as if it were an address.
+await page.evaluate(() => { document.querySelector("#nc-address").value = ""; });
+await page.type("#nc-address", "100 Main St, Kingston, PA");
+await sleep(200);
+const fix6Full = await page.evaluate(() => document.querySelector("#nc-suggest") ? document.querySelector("#nc-suggest").innerText : "");
+check("28b: typing a past call's full address never offers its nature", !hasNature(fix6Full), JSON.stringify(fix6Full));
+// Doc check 2: type the start of a saved address — it is suggested,
+// and still no nature appears.
+await page.evaluate(() => { document.querySelector("#nc-address").value = ""; });
+await page.type("#nc-address", "100 M");
+await sleep(200);
+const fix6Saved = await page.evaluate(() => ({
+  opts: [...document.querySelectorAll("#addr-list option")].map((o) => o.value),
+  suggest: document.querySelector("#nc-suggest") ? document.querySelector("#nc-suggest").innerText : "",
+}));
+check("28c: typing the start of a saved address still suggests it, and no nature appears", fix6Saved.opts.includes("100 Main St, Kingston, PA") && !hasNature(fix6Saved.suggest), JSON.stringify(fix6Saved));
+// Address history: a repeat caller's phone suggests their past call's
+// address — and nothing else.
+await page.evaluate(() => { document.querySelector("#nc-address").value = ""; });
+await page.type("#nc-address", "1");
+await page.type("#nc-phone", "555-0101");
+await sleep(200);
+const fix6Phone = await page.evaluate(() => document.querySelector("#nc-suggest") ? document.querySelector("#nc-suggest").innerText : "");
+check("28d: a repeat caller's phone suggests their past address, never a nature", fix6Phone.includes("100 Main St, Kingston, PA") && !hasNature(fix6Phone), JSON.stringify(fix6Phone));
+// Tapping a history suggestion fills the address field (T9 tap 1).
+await page.evaluate(() => { const b = document.querySelector('#nc-suggest [data-suggest]'); if (b) b.click(); });
+await sleep(200);
+const fix6Tap = await page.evaluate(() => document.querySelector("#nc-address").value);
+check("28e: tapping a history suggestion fills the address field with that address", fix6Tap === "100 Main St, Kingston, PA", JSON.stringify(fix6Tap));
+// The nature picker still lists every call nature.
+const fix6Natures = await page.evaluate(() => [...document.querySelectorAll("#nc-nature option")].map((o) => o.value));
+check("28f: nature picker still lists all call natures", NATURES.every((n) => fix6Natures.includes(n)), JSON.stringify(fix6Natures));
+// Regression (T9, doc check 3): create a call with the saved address —
+// it saves and appears on the list with the right town. (T9 taps 2–4:
+// Review, Put out call, open Calls.)
+await page.select("#nc-nature", "Lockout");
+await page.type("#nc-vehicle", "Subaru Outback");
+await page.type("#nc-name", "Fix6 Caller");
+await page.type("#nc-phone", "555-0196");
+await page.type("#nc-notes", "Fix 6 regression call");
+await page.click('#new-call-form button[type="submit"]');
+await sleep(300);
+const fix6Summary = await text();
+check("28g: summary step shows the saved address before confirming", fix6Summary.includes("Review before confirming") && fix6Summary.includes("100 Main St, Kingston, PA"), fix6Summary.slice(0, 200));
+await clickAction("confirm-call", { status: "open" });
+await sleep(300);
+await goTab("calls");
+const fix6List = await text();
+check("28h: call created with the saved address appears on the list with the right town", fix6List.includes("100 Main St") && fix6List.includes("Kingston") && fix6List.includes("Fix6 Caller"), fix6List.slice(0, 300));
+const fix6Secs = Math.round((Date.now() - fix6Start) / 1000);
+console.log("T9 re-run (Fix 6): " + fix6Secs + "s wall, 4 scripted taps, 0 errors — baseline ~2 min, 4 taps, 0 errors");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
