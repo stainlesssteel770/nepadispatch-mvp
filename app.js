@@ -1023,6 +1023,10 @@ function render() {
     } else banner.hidden = true;
   }
   var v = $("#view");
+  // Fix 8 (v2 test, Finding 9): the current view is exposed on <main>
+  // so CSS can scope view-specific spacing — the Calls list needs a
+  // deeper bottom pad (see styles.css) without touching Home.
+  v.dataset.view = App.tab;
   var fn = { home: viewHome, calls: viewCalls, new: viewNewCall, equipment: viewEquipment, manage: viewManage,
     contacts: viewContacts, dashboard: viewDashboard, reports: viewReports, requests: viewRequests,
     history: viewHistory, data: viewData }[App.tab] || viewHome;

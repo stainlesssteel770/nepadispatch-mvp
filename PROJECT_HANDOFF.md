@@ -40,7 +40,9 @@ Fix 4 — backup recipients (UI/UX test v2, Finding 4, sev 2; owner-approved 202
 Fix 5 — rename Dashboard to My stats (UI/UX test v2, Finding 5, sev 2; owner-approved 2026-11-23, Batch C): the hamburger-menu page is now "My stats" — menu entry, page heading, and the coordinator org sub-heading ("Organisation stats (last 30 days)"); the stats themselves, bottom-nav Home, and every other menu label are unchanged. PUSHED 2026-11-23 (commit 90e1ae2a) and live-verified; `?v=20261123-fix5`, 247/247 smoke checks. See "Fix 5 — rename Dashboard — 2026-11-23" below.
 Fix 6 — address suggestions (UI/UX test v2, Finding 7, sev 1; owner-approved 2026-11-23, Batch C): the New call address field's history suggestions are now addresses only — `Store.historySuggestions()` returns past-call addresses (same-phone calls, or a past address the typed text starts) instead of call natures, and tapping a suggestion fills the address field; the saved-address datalist and the nature picker are unchanged. PUSHED 2026-11-23 (commit 07c3a98e) and live-verified; `?v=20261123-fix6`, 255/255 smoke checks. See "Fix 6 — address suggestions — 2026-11-23" below.
 
-Fix 7 — secondary control sizes (UI/UX test v2, Finding 8, sev 2; owner-approved 2026-11-23, Batch C): the banner dismiss ✕ is now 48×48 (was 44×44), the call-detail dialog gains a 48×48 ✕ (it had none — the tester's "detail-modal ✕ ≈30px" did not exist in the build), and the Manage nature-row controls (↑/↓, Rename, Delete) are now 48px tall (were 44px). Primary actions unchanged (bar segments 62px, ETA input 44px, tab buttons 44px — measured, no regression). PUSHED 2026-11-23 and live-verified; `?v=20261123-fix7`, 268/268 smoke checks. See "Fix 7 — secondary control sizes — 2026-11-23" below.
+Fix 7 — secondary control sizes (UI/UX test v2, Finding 8, sev 2; owner-approved 2026-11-23, Batch C): the banner dismiss ✕ is now 48×48 (was 44×44), the call-detail dialog gains a 48×48 ✕ (it had none — the tester's "detail-modal ✕ ≈30px" did not exist in the build), and the Manage nature-row controls (↑/↓, Rename, Delete) are now 48px tall (were 44px). Primary actions unchanged (bar segments 62px, ETA input 44px, tab buttons 44px — measured, no regression). PUSHED 2026-11-23 (commit 15c74379) and live-verified; `?v=20261123-fix7`, 268/268 smoke checks. See "Fix 7 — secondary control sizes — 2026-11-23" below.
+
+Fix 8 — footer spacing (UI/UX test v2, Finding 9, sev 1; owner-approved 2026-11-23, Batch C): the last call card now sits 52px above the footer (was 28px) at every width — the Calls list gets a deeper main bottom pad, compensated by dropping the footer's bottom margin on Calls only so the document height and max-scroll geometry are unchanged. Footer text, card layout and bottom nav unchanged. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix8`, 276/276 smoke checks. See "Fix 8 — footer spacing — 2026-11-23" below.
 
 ## Architecture
 
@@ -1997,4 +1999,72 @@ scripted taps (open the card, close via the dialog ✕), 0 errors.
 
 `index.html` asset version bumped `?v=20261123-fix6` →
 `?v=20261123-fix7` (styles.css, seed.js, app.js, and the SW cache
+name matches). PUSHED 2026-11-23 (commit 15c74379) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
+
+## Fix 8 — footer spacing — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 9,
+severity 1 — the footer line "Static prototype for single-phone
+testing…" sits tight against / overlapping the bottom edge of the last
+call card. Owner-approved 2026-11-23, Batch C (small, separate
+commits). No baseline task exists for this one — it is a layout fix,
+not a task fix.
+
+### Measured pre-fix (headless Chrome — the tester measured at desktop width only)
+
+| Width | Gap, last card → footer | Footer vs tab bar at max scroll |
+|---|---|---|
+| 390×844 | **28px** (12px card margin-bottom + 16px main padding-bottom) | footer bottom 31px above the tab bar top |
+| 1280×800 | **28px** | footer bottom 31px above the tab bar top |
+
+The footer never overlapped the card or the tab bar — the finding is
+the tightness, not an overlap. Member Home (u-m4, seed) is exactly
+one screen (844px, zero slack), and the first call card top is 322px
+at 390px with the banner showing.
+
+### Change
+
+- **Calls-only bottom pad** (app.js `render()` + styles.css):
+  `render()` now sets `main.dataset.view = App.tab`, and
+  `main[data-view="calls"] { padding-bottom: 40px; }` — so the gap
+  between the last card and the footer is 12px + 40px = **52px** at
+  every width. Scoped to the Calls view on purpose: a global `.foot`
+  margin-top would push member Home past one screen (844px, zero
+  slack — sections 19-1/20f).
+- **Compensation** (styles.css): the extra 24px is paid back by
+  `main[data-view="calls"] ~ .foot { margin-bottom: 0; }` — the
+  footer's own bottom margin drops 24px → 0 on Calls only. The
+  document height is therefore unchanged, and so is the max-scroll
+  geometry. This mattered: the first, uncompensated version (pad 40px
+  alone) passed the gap checks but broke the Fix 2 toast check 22b —
+  pre-fix the nearest card bar sat just 14px below the toast zone at
+  max scroll, so +24px of document height pushed its Call/Maps
+  segments 10px under the top-docked Undo toast. With the
+  compensation, 22b passes with its original 14px clearance. The
+  footer still clears the fixed tab bar at max scroll on Calls: 7px
+  (64px body padding − 57px bar — check 30h).
+- Unchanged: footer text, card layout, card-to-card spacing, first
+  card top, bottom navigation, and every other view (Home keeps its
+  16px main pad and the footer's 24px bottom margin).
+
+### Tests
+
+New smoke section 30 (8 checks): 30a gap ≥40px at 390px (52px);
+30b gap ≥40px at desktop 1280×800 (52px); 30c footer text unchanged;
+30d last card (INC-1038) still opens its detail; 30e member Home
+(u-m4) still fits one 390×844 screen (844px); 30f first card top
+unchanged at 390px (322px); 30g no page overflow at 390px on Calls;
+30h footer still clears the bottom tab bar at max scroll on Calls
+(foot bottom 780 vs bar top 787). Failing-test-first: on the pre-fix
+tree the run was 273/275 with exactly 30a and 30b failing (gap 28px
+at both widths — 30f needed its viewport-relative top corrected to
+absolute coordinates first, a test bug, not an app bug); after the
+fix, **276/276 passed**, zero page errors. The 20b SW checks hardcode
+the version token, so they were bumped to `20261123-fix8` with the
+rest.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fix7` →
+`?v=20261123-fix8` (styles.css, seed.js, app.js, and the SW cache
 name matches). PUSHED 2026-11-23 and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).

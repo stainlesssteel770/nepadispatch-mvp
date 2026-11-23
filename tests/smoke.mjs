@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix7"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix7", "app.js?v=20261123-fix7", "seed.js?v=20261123-fix7", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix8"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix8", "app.js?v=20261123-fix8", "seed.js?v=20261123-fix8", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -2642,6 +2642,80 @@ check("29f: renaming a nature still works", fix7Renamed, await page.evaluate(() 
 const fix7Secs = Math.round((Date.now() - fix7Start) / 1000);
 console.log("T12 re-run (Fix 7): " + fix7Secs + "s wall, 2 scripted taps, 0 errors — baseline ~2 min, ~8 taps, 0 errors (brief; report full-T12 row ~5 min, ~12 taps)");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 30. Fix 8 — footer spacing (v2 test, Finding 9, sev 1; Batch C).
+// The footer sat only 28px below the last call card (12px card
+// margin-bottom + 16px main padding-bottom) — tight enough to read as
+// attached to the card. Measured pre-fix at 390px and at 1280px: gap
+// 28px at both widths; the footer never overlapped the card or the tab
+// bar, so the finding is the tightness, not an overlap. The fix must
+// be scoped to the Calls view: member Home is exactly one screen
+// (844px, zero slack), so a global .foot margin-top would break the
+// 19-1/20f Home checks.
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+const fix8Gap = async () => await page.evaluate(() => {
+  const cards = [...document.querySelectorAll("main .card")];
+  const last = cards[cards.length - 1];
+  const foot = document.querySelector(".foot");
+  const lr = last.getBoundingClientRect();
+  const fr = foot.getBoundingClientRect();
+  const first = cards[0].getBoundingClientRect();
+  return {
+    cards: cards.length,
+    gap: Math.round(fr.top - lr.bottom),
+    firstTop: Math.round(first.top + window.scrollY),
+    docW: document.documentElement.scrollWidth,
+    footText: foot.innerText,
+  };
+});
+let fix8 = await fix8Gap();
+check("30a: gap between last call card and footer at 390px is clear (>= 40px)", fix8.gap >= 40, "gap=" + fix8.gap + "px");
+check("30c: footer text unchanged", fix8.footText.includes("Static prototype for single-phone testing") && fix8.footText.includes("No server, no network calls, no real dispatch") && fix8.footText.includes("See README.md"), fix8.footText.slice(0, 120));
+check("30f: first call card top unchanged at 390px", fix8.firstTop >= 300 && fix8.firstTop <= 340, "firstTop=" + fix8.firstTop);
+check("30g: no page overflow at 390px on Calls", fix8.docW <= 390, "docW=" + fix8.docW);
+// 30d: last card still fully tappable to open (fix-doc smoke check 2).
+const fix8LastInc = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll("main .card")];
+  const m = cards[cards.length - 1].innerText.match(/INC-\d+/);
+  return m ? m[0] : "";
+});
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll("main .card")];
+  cards[cards.length - 1].querySelector(".card-addr").click();
+});
+await sleep(300);
+const fix8Dlg = await page.evaluate(() => document.querySelector("#dlg-body").innerText);
+check("30d: last card still opens its call detail", !!fix8LastInc && fix8Dlg.includes(fix8LastInc), "last=" + fix8LastInc + " dlg=" + fix8Dlg.slice(0, 80));
+await page.click(".dlg-x"); await sleep(200);
+// 30h: at max scroll on Calls the footer still clears the fixed tab
+// bar — the Fix 8 compensation drops the footer's bottom margin, so
+// its bottom edge moves down 24px (7px clear: 64px body padding −
+// 57px bar). Guard: passes pre-fix (31px clear) and post-fix.
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); await sleep(200);
+const fix8FootBar = await page.evaluate(() => ({
+  footBottom: Math.round(document.querySelector(".foot").getBoundingClientRect().bottom),
+  barTop: Math.round(document.querySelector("#tabs").getBoundingClientRect().top),
+}));
+check("30h: footer still clears the bottom tab bar at max scroll on Calls", fix8FootBar.footBottom <= fix8FootBar.barTop, JSON.stringify(fix8FootBar));
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
+// 30e: member Home still fits one screen — proves the spacing is
+// scoped to Calls, not a global footer change.
+await setRole("u-m4");
+await goTab("home");
+const fix8Home = await page.evaluate(() => document.documentElement.scrollHeight);
+check("30e: member Home (u-m4) still fits one 390x844 screen", fix8Home <= 844, "docH=" + fix8Home);
+// 30b: same gap at desktop width.
+await page.setViewport({ width: 1280, height: 800 });
+await sleep(300);
+await setRole("u-disp");
+await goTab("calls");
+const fix8Desk = await fix8Gap();
+check("30b: gap between last call card and footer at desktop width is clear (>= 40px)", fix8Desk.gap >= 40, "gap=" + fix8Desk.gap + "px");
+console.log("Fix 8 gaps — 390px: " + fix8.gap + "px, desktop 1280px: " + fix8Desk.gap + "px (pre-fix: 28px at both); member Home docH=" + fix8Home + "px");
+await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+await sleep(200);
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 

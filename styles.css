@@ -187,6 +187,21 @@ nav#tabs button.tab-new[aria-current="true"] { background: var(--green-dark); co
    Keeping main's old 48px pad would push the member-Home stress
    case past one viewport. */
 main { max-width: 760px; margin: 0 auto; padding: 8px 12px 16px; }
+/* Fix 8 (v2 test, Finding 9, sev 1): the footer sat only 28px below
+   the last call card (12px card margin + 16px main padding) — tight
+   enough to read as attached to the card. The Calls list gets a deeper
+   main bottom pad, so the gap is 52px at every width. Scoped to the
+   Calls view on purpose: a global .foot margin-top would push member
+   Home past one screen (844px, zero slack — sections 19-1/20f).
+   The extra 24px is compensated by dropping the footer's own bottom
+   margin on Calls only, so the document height — and therefore the
+   max-scroll geometry the Fix 2 toast check (22b) depends on — is
+   unchanged: pre-fix the nearest card bar sat just 14px below the
+   toast zone at max scroll, so any net height growth would push it
+   under the toast. The footer still clears the fixed tab bar at max
+   scroll (7px: 64px body padding − 57px bar — check 30h). */
+main[data-view="calls"] { padding-bottom: 40px; }
+main[data-view="calls"] ~ .foot { margin-bottom: 0; }
 h1 { font-size: 1.4rem; margin: .5em 0 .2em; letter-spacing: -.01em; }
 h2 { font-size: 1.08rem; margin: 1.3em 0 .5em; letter-spacing: -.01em; }
 h3 { font-size: 1rem; margin: 0 0 .3em; }

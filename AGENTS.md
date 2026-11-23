@@ -66,4 +66,4 @@ node tests/smoke.mjs          # browser smoke tests (needs puppeteer-core + CHRO
 - `seed.js` — fake seed data only (`window.DISPATCH_SEED`).
 - `app.js` — Store (persistence + rules) + UI rendering + event handling.
   `window.DispatchStore` / `window.DispatchApp` are exposed for tests.
-- `tests/smoke.mjs` — 268 headless-browser checks.
+- `tests/smoke.mjs` — 276 headless-browser checks.
