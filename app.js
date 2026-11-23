@@ -1489,7 +1489,7 @@ function viewManage() {
   if (Store.can("manage-natures")) {
     h += "<h2>Call natures</h2><form id=\"nature-add-form\"><label for=\"nature-new\">Add a call nature</label><input type=\"text\" id=\"nature-new\" name=\"name\"><div><button class=\"btn\" type=\"submit\">Add nature</button></div></form>" +
       s.callNatures.map(function (n, i) {
-        return '<div class="card">' + esc(n) +
+        return '<div class="card nature-row">' + esc(n) +
           ' <button class="btn small secondary" data-action="nature-up" data-name="' + esc(n) + '">↑</button>' +
           ' <button class="btn small secondary" data-action="nature-down" data-name="' + esc(n) + '">↓</button>' +
           ' <button class="btn small secondary" data-action="nature-edit" data-name="' + esc(n) + '">Rename</button>' +

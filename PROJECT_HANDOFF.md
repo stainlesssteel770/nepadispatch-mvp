@@ -38,7 +38,9 @@ Fix 3 — responder ETA on the list card (UI/UX test v2, Finding 3, sev 2; owner
 Fix 4 — backup recipients (UI/UX test v2, Finding 4, sev 2; owner-approved 2026-11-23, Batch B): requesting backup now names who was told — the call detail lists the alerted people by name ("NEEDED — alerted: Rivka Coordinator, Dana Dispatcher, Moishe Member, Yossi Member, Levi Member and Shmuel Member"), and the banner adds a second line naming the roles ("Backup requested — all coordinators, dispatchers and members alerted"), both computed live from Store.alertTargets() (everyone except super admin). Toast, "Backup NEEDED" badge and backup-request button unchanged. PUSHED 2026-11-23 (commit cb4e3f13) and live-verified; `?v=20261123-fix4`, 239/239 smoke checks. See "Fix 4 — backup recipients — 2026-11-23" below.
 
 Fix 5 — rename Dashboard to My stats (UI/UX test v2, Finding 5, sev 2; owner-approved 2026-11-23, Batch C): the hamburger-menu page is now "My stats" — menu entry, page heading, and the coordinator org sub-heading ("Organisation stats (last 30 days)"); the stats themselves, bottom-nav Home, and every other menu label are unchanged. PUSHED 2026-11-23 (commit 90e1ae2a) and live-verified; `?v=20261123-fix5`, 247/247 smoke checks. See "Fix 5 — rename Dashboard — 2026-11-23" below.
-Fix 6 — address suggestions (UI/UX test v2, Finding 7, sev 1; owner-approved 2026-11-23, Batch C): the New call address field's history suggestions are now addresses only — `Store.historySuggestions()` returns past-call addresses (same-phone calls, or a past address the typed text starts) instead of call natures, and tapping a suggestion fills the address field; the saved-address datalist and the nature picker are unchanged. PUSHED 2026-11-23 and live-verified; `?v=20261123-fix6`, 255/255 smoke checks. See "Fix 6 — address suggestions — 2026-11-23" below.
+Fix 6 — address suggestions (UI/UX test v2, Finding 7, sev 1; owner-approved 2026-11-23, Batch C): the New call address field's history suggestions are now addresses only — `Store.historySuggestions()` returns past-call addresses (same-phone calls, or a past address the typed text starts) instead of call natures, and tapping a suggestion fills the address field; the saved-address datalist and the nature picker are unchanged. PUSHED 2026-11-23 (commit 07c3a98e) and live-verified; `?v=20261123-fix6`, 255/255 smoke checks. See "Fix 6 — address suggestions — 2026-11-23" below.
+
+Fix 7 — secondary control sizes (UI/UX test v2, Finding 8, sev 2; owner-approved 2026-11-23, Batch C): the banner dismiss ✕ is now 48×48 (was 44×44), the call-detail dialog gains a 48×48 ✕ (it had none — the tester's "detail-modal ✕ ≈30px" did not exist in the build), and the Manage nature-row controls (↑/↓, Rename, Delete) are now 48px tall (were 44px). Primary actions unchanged (bar segments 62px, ETA input 44px, tab buttons 44px — measured, no regression). PUSHED 2026-11-23 and live-verified; `?v=20261123-fix7`, 268/268 smoke checks. See "Fix 7 — secondary control sizes — 2026-11-23" below.
 
 ## Architecture
 
@@ -1900,4 +1902,99 @@ scripted wall, 4 scripted taps, 0 errors.
 
 `index.html` asset version bumped `?v=20261123-fix5` →
 `?v=20261123-fix6` (styles.css, seed.js, app.js, and the SW cache
+name matches). PUSHED 2026-11-23 (commit 07c3a98e) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
+
+## Fix 7 — secondary control sizes — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 8,
+severity 2 — Manage nature rows ↑/↓, Rename/Delete (≈30px), detail-modal
+✕ (≈30px), and banner dismiss ✕ (≈20–24px, borderline vs the 24px WCAG
+floor) are below the 48px Android-first bar. Owner-approved 2026-11-23,
+Batch C (small, separate commits).
+
+### Measured pre-fix at 390×844 (headless Chrome — the tester measured at
+desktop width only, so these are the first real 390px numbers)
+
+| Control | Pre-fix size | Post-fix size |
+|---|---|---|
+| Banner dismiss ✕ (`.banner-x`) | 44×44 | **48×48** |
+| Detail-modal ✕ | **did not exist** — no ✕ in the `<dialog>` at all (closes via Done/Cancel buttons, 44px tall, or Esc) | **48×48** (added) |
+| Manage nature-row ↑ / ↓ | 33×44 | 33×**48** |
+| Manage nature-row Rename | 81×44 | 81×**48** |
+| Manage nature-row Delete | 68×44 | 68×**48** |
+| Card action-bar segments (primary, unchanged) | 62px tall | 62px tall |
+| Inline ETA input on a member card (primary, unchanged) | 44px tall | 44px tall |
+| Bottom tab-bar buttons (primary, unchanged) | 44px tall | 44px tall |
+| Choice-toast ✕ (`.toast-x`, unchanged — not named in Fix 7) | 44×44 | 44×44 |
+| Hamburger-menu ✕ (`.btn small secondary`, unchanged — not named in Fix 7) | 38×44 | 38×44 |
+
+No control is below the 24px WCAG 2.2 SC 2.5.8 floor, before or after.
+The tester's ≈30px / ≈20–24px figures could not be reproduced at
+390px — every measured box was already 44px (the `.btn` / `.btn.small`
+min-heights), except the banner ✕ the tester measured as a glyph rather
+than its button box. The one genuine gap the tester found was real in a
+different way: the detail dialog has no ✕ control at all.
+
+### Change
+
+- **Banner ✕** (styles.css `.banner-x`): min-width/min-height 44px →
+  48px. The banner's right padding grows 48px → 56px so the wider
+  button never tucks text under it. The button stays absolutely
+  positioned, so the banner itself does not grow — member Home stays
+  exactly one screen (844px, zero slack). At 390px the 48px button
+  overflows the single-line banner (45px tall) by ~2px top and bottom,
+  over the header's bottom edge and the warn strip's top edge — neither
+  holds an interactive control at the right edge (verified by check
+  29b: no intersection with the menu button or the toast).
+- **Detail-modal ✕** (index.html + styles.css): a static
+  `<button class="dlg-x" data-action="close-dialog" aria-label="Close">✕</button>`
+  inside `<dialog id="dlg">`, before `#dlg-body`, so it persists across
+  every dialog the app opens. 48×48, top-right, glyph 1.15rem (same
+  size as the banner ✕). It closes through the existing `close-dialog`
+  path — the same handler as Done/Cancel — so no behaviour changes.
+  All dialog contents start with an `<h2>`, so
+  `#dlg-body > h2:first-child { padding-right: 52px; }` keeps the first
+  line of every dialog title clear of it (measured: title text right
+  edge 206px vs ✕ left edge 320px on INC-1042).
+- **Manage nature rows** (app.js `viewManage` + styles.css): each nature
+  row is now `<div class="card nature-row">`, and
+  `.nature-row .btn.small { min-height: 48px; }` raises only those four
+  controls per row. Scoped deliberately — member Edit and
+  address/fleet buttons stay at the 44px `.btn.small` default (above
+  the 24px floor); the fix doc named nature rows only.
+- Unchanged: primary actions (bar segments, Respond, ETA field, toast
+  choice buttons, bottom nav), what Rename/Delete/Move do, the Manage
+  page structure, the toast ✕ and menu ✕ (measured and documented
+  above, not resized — neither was named in Fix 7).
+
+### Tests
+
+New smoke section 29 (13 checks): 29a banner ✕ ≥48×48; 29b the
+enlarged banner ✕ overlaps no neighbouring interactive control (menu
+button, toast) and the page stays 390px wide; 29c the dialog has a ✕
+≥48×48 with the title text clear of it, and tapping it closes the
+detail; 29h choice-toast ✕ stays ≥24px (documented, unchanged) and
+dismissing the choice toast via it leaves the call open; 29g
+regression — card bar segments stay ≥48px tall, tab buttons ≥44px, ETA
+input ≥44px, no overflow; 29e dismissing the banner via the ✕ hides
+it and it stays hidden after reload; 29d every nature-row control
+≥48px tall and ≥24px wide; 29f regression — moving a nature up and
+renaming one (via the native prompt, answered by the suite's dialog
+handler) still work. Failing-test-first: on the pre-fix tree the run
+was 265/268 with exactly 29a, 29c and 29d failing (29a measured the
+banner ✕ at 44×44; 29c found no `.dlg-x` at all; 29d measured the
+nature-row buttons at 44px tall); after the fix, **268/268 passed**,
+zero page errors. The 20b SW checks hardcode the version token, so
+they were bumped to `20261123-fix7` with the rest.
+
+T12 re-run (Fix 7) vs baseline (~2 min, ~8 taps, 0 errors per the
+brief — the report's full-T12 row is ~5 min, ~12 taps for add
+member/nature/address + export; the re-run below is the
+open-call/close-detail slice the brief names): 6s scripted wall, 2
+scripted taps (open the card, close via the dialog ✕), 0 errors.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fix6` →
+`?v=20261123-fix7` (styles.css, seed.js, app.js, and the SW cache
 name matches). PUSHED 2026-11-23 and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).

@@ -121,14 +121,19 @@ header {
 .menu-foot select { margin-bottom: 8px; }
 
 /* ----- banners: one compact line + dismiss ----- */
-.alert-banner { position: relative; padding: 10px 48px 10px 16px; font-weight: 700; background: #fff3cd; border-bottom: 2px solid var(--amber); color: #5c3d00; font-size: .92rem; }
+.alert-banner { position: relative; padding: 10px 56px 10px 16px; font-weight: 700; background: #fff3cd; border-bottom: 2px solid var(--amber); color: #5c3d00; font-size: .92rem; }
 .alert-banner.urgent { background: #fde2e2; border-color: var(--red); color: #7a1f16; }
 .banner-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Fix 4 (v2 test, Finding 4): second banner line naming who a backup
    request alerted. Wraps normally (unlike .banner-line) so the roles
    always fit at 390px; the dismiss ✕ stays vertically centred. */
 .banner-sub { font-size: .82rem; font-weight: 600; margin-top: 2px; }
-.banner-x { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-width: 44px; min-height: 44px; background: transparent; border: none; font-size: 1.15rem; font-weight: 800; line-height: 1; color: inherit; cursor: pointer; }
+/* Fix 7 (v2 test, Finding 8): banner dismiss ✕ is 48px (the
+   Android-first bar) instead of 44px; the banner's right padding grows
+   48px → 56px so the wider button never tucks text under it. The button
+   is absolutely positioned, so the banner itself does not grow — member
+   Home stays exactly one screen (844px, zero slack). */
+.banner-x { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-width: 48px; min-height: 48px; background: transparent; border: none; font-size: 1.15rem; font-weight: 800; line-height: 1; color: inherit; cursor: pointer; }
 .warn { padding: 9px 16px; background: #fff8e6; border-bottom: 1px solid #e8c87a; font-size: .88rem; font-weight: 600; color: #5c3d00; }
 
 /* ----- fixed bottom tab bar: icons + labels, thumb-reach -----
@@ -403,6 +408,14 @@ th { background: #f2f5f9; font-size: .82rem; text-transform: uppercase; letter-s
 /* ----- dialog / toast / footer ----- */
 dialog { border: none; border-radius: 18px; padding: 20px; max-width: 560px; width: calc(100vw - 32px); box-shadow: 0 16px 40px rgba(10, 20, 40, .35); }
 dialog::backdrop { background: rgba(10, 20, 40, .55); }
+/* Fix 7 (v2 test, Finding 8): the call-detail dialog had no ✕ at all —
+   the tester measured a "detail-modal ✕ ≈30px" at desktop width, but no
+   such control existed in the build. The ✕ below is 48px (the
+   Android-first bar) and closes through the same close-dialog path as
+   Done/Cancel. The h2 padding keeps the first line of every dialog
+   title (all dialogs start with an h2) clear of it. */
+.dlg-x { position: absolute; top: 6px; right: 6px; min-width: 48px; min-height: 48px; background: transparent; border: none; font-size: 1.15rem; font-weight: 800; line-height: 1; color: inherit; cursor: pointer; }
+#dlg-body > h2:first-child { padding-right: 52px; }
 /* Inline dialog error: native <dialog> sits in the top layer, so a
    toast can never appear above it — errors render here instead. */
 .dlg-error { background: #fde2e2; color: #7a1f16; border: 1px solid #f0b4b4; border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-weight: 700; }
@@ -448,6 +461,11 @@ dialog::backdrop { background: rgba(10, 20, 40, .55); }
    Android-first bar) even though .btn.small is 44px. */
 .equip-out-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0; flex-wrap: wrap; }
 .equip-out-row .btn.small { min-height: 48px; }
+/* Fix 7 (v2 test, Finding 8): Manage nature-row controls (↑/↓, Rename,
+   Delete) are 48px tall (the Android-first bar) instead of the 44px
+   .btn.small default. Scoped to nature rows only — member Edit and
+   address/fleet buttons stay at 44px (above the 24px WCAG floor). */
+.nature-row .btn.small { min-height: 48px; }
 .attention { background: #fff8e6; border: 1px solid #e8a13a; border-radius: var(--radius); padding: 14px; margin: 12px 0; box-shadow: 0 2px 8px rgba(10, 20, 40, .08); }
 
 /* ----- narrow tables: stack wide tables into labelled cards so no

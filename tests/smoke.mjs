@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix6"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix6", "app.js?v=20261123-fix6", "seed.js?v=20261123-fix6", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix7"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix7", "app.js?v=20261123-fix7", "seed.js?v=20261123-fix7", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -2521,6 +2521,126 @@ const fix6List = await text();
 check("28h: call created with the saved address appears on the list with the right town", fix6List.includes("100 Main St") && fix6List.includes("Kingston") && fix6List.includes("Fix6 Caller"), fix6List.slice(0, 300));
 const fix6Secs = Math.round((Date.now() - fix6Start) / 1000);
 console.log("T9 re-run (Fix 6): " + fix6Secs + "s wall, 4 scripted taps, 0 errors — baseline ~2 min, 4 taps, 0 errors");
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 29. Fix 7 — secondary controls up to size (v2 test, Finding 8, sev 2;
+// Batch C). T12 baseline per the brief: ~2 min, ~8 taps, 0 errors (the
+// report's full-T12 row is ~5 min, ~12 taps for add member/nature/
+// address + export — the re-run below is the open-call/close-detail
+// slice the brief names). Measured pre-fix at 390px: banner ✕ 44x44,
+// nature-row buttons 44px tall, and the call-detail dialog has NO ✕ at
+// all — the tester measured a "detail-modal ✕ ≈30px" at desktop width,
+// but no such control exists in the build, so this fix ADDS a 48px
+// dialog ✕ wired to the same close-dialog path as Done/Cancel.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+const fix7Start = Date.now();
+const rectOf = async (sel) => await page.evaluate((s) => {
+  const el = document.querySelector(s);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+}, sel);
+// 29a: banner dismiss ✕ is at least 48x48.
+const fix7BannerX = await rectOf(".banner-x");
+check("29a: banner dismiss ✕ is at least 48x48", !!fix7BannerX && fix7BannerX.w >= 48 && fix7BannerX.h >= 48, JSON.stringify(fix7BannerX));
+// 29b: the enlarged banner ✕ covers no neighbouring interactive control
+// (menu button at the left, toast when visible) and nothing overflows.
+const fix7BannerClear = await page.evaluate(() => {
+  const bx = document.querySelector(".banner-x");
+  const menu = document.querySelector(".menu-btn");
+  const toast = document.querySelector("#toast");
+  const hit = (a, b) => a && b && a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  const br = bx ? bx.getBoundingClientRect() : null;
+  return {
+    menuHit: br ? hit(br, menu.getBoundingClientRect()) : true,
+    toastHit: br && toast && !toast.hidden ? hit(br, toast.getBoundingClientRect()) : false,
+    overflow: document.documentElement.scrollWidth,
+  };
+});
+check("29b: banner ✕ overlaps no neighbour control and the page stays 390px wide", fix7BannerX && !fix7BannerClear.menuHit && !fix7BannerClear.toastHit && fix7BannerClear.overflow === 390, JSON.stringify(fix7BannerClear));
+// 29c: T12 re-run, taps 1–2 — open the call detail, close it with the
+// dialog ✕. The ✕ must be >=48x48 and the h2 text must not run under it.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1042"));
+  c.querySelector(".card-addr").click();
+});
+await sleep(400);
+const fix7DlgX = await page.evaluate(() => {
+  const x = document.querySelector("#dlg .dlg-x");
+  if (!x) return null;
+  const r = x.getBoundingClientRect();
+  const h2 = document.querySelector("#dlg-body h2");
+  let textRight = null;
+  if (h2) { const range = document.createRange(); range.selectNodeContents(h2); textRight = Math.round(range.getBoundingClientRect().right); }
+  return { w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.x), textRight };
+});
+check("29c: detail dialog has a ✕ of at least 48x48 and the title text stays clear of it", !!fix7DlgX && fix7DlgX.w >= 48 && fix7DlgX.h >= 48 && fix7DlgX.textRight !== null && fix7DlgX.textRight <= fix7DlgX.left, JSON.stringify(fix7DlgX));
+if (fix7DlgX) { await page.click("#dlg .dlg-x"); } else { await page.click('[data-action="close-dialog"]'); }
+await sleep(300);
+check("29c: tapping the dialog ✕ closes the detail (T12 tap 2)", await page.evaluate(() => !document.querySelector("#dlg").open));
+// 29h: choice-toast ✕ stays above the 24px WCAG floor (unchanged by
+// this fix — measured, not resized). Tap Close on the open card, read
+// the toast ✕, dismiss via it; the call must stay open.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const c = cards.find((x) => x.innerText.includes("INC-1042"));
+  c.querySelector('[data-action="correct-call"]').click();
+});
+await sleep(300);
+const fix7ToastX = await rectOf(".toast-x");
+check("29h: choice-toast ✕ is at least 24px in both dimensions (unchanged, documented)", !!fix7ToastX && fix7ToastX.w >= 24 && fix7ToastX.h >= 24, JSON.stringify(fix7ToastX));
+await page.click(".toast-x"); await sleep(300);
+const fix7AfterToastX = await page.evaluate(() => ({ toastHidden: document.querySelector("#toast").hidden, stillOpen: document.body.innerText.includes("INC-1042") }));
+check("29h: dismissing the choice toast via its ✕ leaves the call open", fix7AfterToastX.toastHidden && fix7AfterToastX.stillOpen, JSON.stringify(fix7AfterToastX));
+// 29g: primary actions do not regress — card bar segments >=48px tall,
+// ETA input and tab buttons keep their current >=44px height.
+const fix7Primary = await page.evaluate(() => {
+  const card = [...document.querySelectorAll(".card")].find((x) => x.innerText.includes("INC-1042"));
+  const segs = [...card.querySelectorAll(".bar-seg")].map((b) => Math.round(b.getBoundingClientRect().height));
+  const tabs = [...document.querySelectorAll("#tabs button")].map((b) => Math.round(b.getBoundingClientRect().height));
+  return { segs, tabs, overflow: document.documentElement.scrollWidth };
+});
+check("29g: card action-bar segments stay >=48px tall, tab buttons >=44px, no overflow", fix7Primary.segs.length === 5 && fix7Primary.segs.every((h) => h >= 48) && fix7Primary.tabs.every((h) => h >= 44) && fix7Primary.overflow === 390, JSON.stringify(fix7Primary));
+await setRole("u-m4");
+await goTab("calls");
+const fix7Eta = await page.evaluate(() => {
+  const inp = document.querySelector(".card input");
+  return inp ? Math.round(inp.getBoundingClientRect().height) : null;
+});
+check("29g: inline ETA input on a member card keeps its >=44px height", fix7Eta !== null && fix7Eta >= 44, "h=" + fix7Eta);
+// 29e: dismiss the banner with the ✕ — it hides and stays hidden after
+// a reload (the settled dismiss behaviour, re-verified on the new target).
+await setRole("u-disp");
+await goTab("calls");
+await page.click(".banner-x"); await sleep(300);
+check("29e: dismissing the banner via the ✕ hides it", await page.evaluate(() => document.querySelector("#alert-banner").hidden));
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+check("29e: dismissed banner stays hidden after reload", await page.evaluate(() => document.querySelector("#alert-banner").hidden));
+// 29d/29f: Manage nature rows (coordinator). Measure first, then move a
+// nature up and rename one — both must still work.
+await setRole("u-coord");
+await goTab("manage");
+const fix7Nature = await page.evaluate(() => {
+  const row = [...document.querySelectorAll(".card")].find((c) => c.querySelector('[data-action="nature-up"]'));
+  if (!row) return null;
+  return [...row.querySelectorAll("button")].map((b) => ({ label: b.innerText, w: Math.round(b.getBoundingClientRect().width), h: Math.round(b.getBoundingClientRect().height) }));
+});
+check("29d: every Manage nature-row control is at least 48px tall and 24px wide", !!fix7Nature && fix7Nature.length === 4 && fix7Nature.every((b) => b.h >= 48 && b.w >= 24), JSON.stringify(fix7Nature));
+await page.click('[data-action="nature-up"][data-name="Dead Battery / Jump Start"]'); await sleep(300);
+const fix7Moved = await page.evaluate(() => DispatchStore.state.callNatures[0]);
+check("29f: moving a nature up still works", fix7Moved === "Dead Battery / Jump Start", "first=" + fix7Moved);
+const fix7Rename = async (d) => { await d.accept("Lockout (renamed)"); };
+page.on("dialog", fix7Rename);
+await page.click('[data-action="nature-edit"][data-name="Lockout"]'); await sleep(300);
+page.off("dialog", fix7Rename);
+const fix7Renamed = await page.evaluate(() => DispatchStore.state.callNatures.includes("Lockout (renamed)"));
+check("29f: renaming a nature still works", fix7Renamed, await page.evaluate(() => JSON.stringify(DispatchStore.state.callNatures)));
+const fix7Secs = Math.round((Date.now() - fix7Start) / 1000);
+console.log("T12 re-run (Fix 7): " + fix7Secs + "s wall, 2 scripted taps, 0 errors — baseline ~2 min, ~8 taps, 0 errors (brief; report full-T12 row ~5 min, ~12 taps)");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
