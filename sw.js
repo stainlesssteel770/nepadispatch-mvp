@@ -6,14 +6,14 @@
    ships a new token, so the new worker installs, precaches the new
    shell, and deletes every older cache on activate — updates apply
    cleanly and the old shell can never be served again. */
-var VERSION = "20261123-fix1";
+var VERSION = "20261123-fix2";
 var CACHE_NAME = "dispatch-mvp-" + VERSION;
 var SHELL = [
   "./",
   "index.html",
-  "styles.css?v=20261123-fix1",
-  "app.js?v=20261123-fix1",
-  "seed.js?v=20261123-fix1",
+  "styles.css?v=20261123-fix2",
+  "app.js?v=20261123-fix2",
+  "seed.js?v=20261123-fix2",
   "manifest.webmanifest",
   "icons/icon-192.png",
   "icons/icon-512.png",

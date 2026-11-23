@@ -1658,8 +1658,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix1"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix1", "app.js?v=20261123-fix1", "seed.js?v=20261123-fix1", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix2"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix2", "app.js?v=20261123-fix2", "seed.js?v=20261123-fix2", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -1880,6 +1880,137 @@ const blocked = await page.evaluate(() => ({
 check("21e: close still blocked while equipment out, toast names the item", blocked.stillOpen && /Equipment must be returned before closing: Hydraulic jack/.test(blocked.toast), JSON.stringify(blocked));
 const t6Secs = Math.round((Date.now() - t6Start) / 1000);
 console.log("T6 re-run (Fix 1): " + t6Secs + "s wall, 7 scripted taps, 0 errors — baseline ~4 min, ~8 taps, 0 errors");
+
+// 22. Fix 2 — toasts no longer cover the card action bars (v2 test,
+// Finding 2, sev 2). T5 baseline: ~3 min, ~6 taps, 0 errors; the
+// close/Undo toasts overlaid the next card's action bar for 8-10 s.
+// Toasts are now docked under the sticky header, so no card action
+// bar is ever under one at the natural scroll positions.
+// Overlap probe: with a toast visible, every card action-bar segment
+// whose centre is in the tappable viewport (above the tab bar) must
+// (a) not intersect the toast's rect and (b) hit-test to itself at
+// its centre (elementFromPoint skips the click-through toast body,
+// so a toast button sitting on a segment is what would block a tap).
+const toastOverlap = async () => await page.evaluate(() => {
+  const tEl = document.querySelector("#toast");
+  if (tEl.hidden) return { shown: false, bad: ["toast hidden"] };
+  const tb = tEl.getBoundingClientRect();
+  const bad = [];
+  [...document.querySelectorAll(".card .bar-seg")].forEach((s) => {
+    const b = s.getBoundingClientRect();
+    const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+    if (cx < 0 || cx >= 390 || cy < 0 || cy >= 787) return; // centre not in the tappable viewport
+    const overlaps = !(b.right <= tb.left || b.left >= tb.right || b.bottom <= tb.top || b.top >= tb.bottom);
+    const hit = document.elementFromPoint(cx, cy);
+    const hitSelf = hit === s || s.contains(hit);
+    if (overlaps || !hitSelf) bad.push({ label: s.getAttribute("aria-label"), overlaps, hitSelf });
+  });
+  return { shown: true, rect: { x: Math.round(tb.x), y: Math.round(tb.y), w: Math.round(tb.width), h: Math.round(tb.height) }, bad };
+});
+// (a) choice toast up: no visible action bar under it, all three
+// outcome buttons visible and tappable.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+const choiceBtns = await page.evaluate(() => {
+  const tEl = document.querySelector("#toast");
+  return [...tEl.querySelectorAll(".toast-choice")].map((b) => { const r = b.getBoundingClientRect(); return { label: b.innerText, h: Math.round(r.height), inView: r.top >= 0 && r.bottom <= 844 }; });
+});
+const choiceOverlap = await toastOverlap();
+check("22a: choice toast up — no visible card action bar under it, 3 outcome buttons visible ≥44px", choiceOverlap.shown && choiceOverlap.bad.length === 0 && choiceBtns.length === 3 && choiceBtns.every((b) => b.h >= 44 && b.inView), JSON.stringify({ toast: choiceOverlap.rect, bad: choiceOverlap.bad, choiceBtns }));
+// (b) Undo toast up: same — no visible action bar under it; Undo
+// button visible; toast still there at ~6 s and gone by ~10 s.
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
+await sleep(400);
+const undoOverlap = await toastOverlap();
+const undoBtn22 = await page.evaluate(() => {
+  const b = document.querySelector("#toast .toast-undo");
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return { label: b.innerText, h: Math.round(r.height), inView: r.top >= 0 && r.bottom <= 844 };
+});
+check("22b: Undo toast up — no visible card action bar under it, Undo button visible ≥44px", undoOverlap.shown && undoOverlap.bad.length === 0 && !!undoBtn22 && undoBtn22.h >= 44 && undoBtn22.inView, JSON.stringify({ toast: undoOverlap.rect, bad: undoOverlap.bad, undoBtn: undoBtn22 }));
+// same check scrolled to the bottom of the list: the last card's bar
+// sits above the tab bar, far below the top-docked toast.
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); await sleep(200);
+const undoOverlapBottom = await toastOverlap();
+check("22b: Undo toast up, scrolled to bottom — no visible card action bar under it", undoOverlapBottom.shown && undoOverlapBottom.bad.length === 0, JSON.stringify({ toast: undoOverlapBottom.rect, bad: undoOverlapBottom.bad }));
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(200);
+await sleep(5500);
+const undoStillThere = await page.evaluate(() => !document.querySelector("#toast").hidden && !!document.querySelector("#toast .toast-undo"));
+await sleep(4500);
+const undoGone = await page.evaluate(() => document.querySelector("#toast").hidden);
+check("22b: Undo toast still visible at ~6 s and gone by ~10 s (window ~8 s)", undoStillThere && undoGone, JSON.stringify({ stillThere: undoStillThere, gone: undoGone }));
+// (c) a real tap elsewhere dismisses the choice toast, call stays open.
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1042")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.mouse.click(200, 33); // header brand — outside the toast, no handler of its own
+await sleep(300);
+const afterOutside = await page.evaluate(() => ({ hidden: document.querySelector("#toast").hidden, stillOpen: DispatchStore.call("c1").status === "open" }));
+check("22c: real tap elsewhere dismisses the choice toast, call stays open", afterOutside.hidden && afterOutside.stillOpen, JSON.stringify(afterOutside));
+// (d) T5 re-run: respond, close as Corrected, Undo restores the
+// responder, close again. Baseline ~3 min, ~6 taps, 0 errors.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-m4");
+await page.evaluate(() => window.scrollTo(0, 0)); await sleep(100);
+await goTab("calls");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  const input = cards.find((c) => c.innerText.includes("INC-1043")).querySelector(".card-eta");
+  input.value = ""; input.focus();
+});
+await page.keyboard.type("20 min");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="card-respond"]').click();
+});
+await sleep(400);
+const responded = await page.evaluate(() => {
+  const r = DispatchStore.call("c2").responders.find((x) => x.userId === "u-m4");
+  return !!r && r.eta === "20 min";
+});
+check("22d: member responds to INC-1043 with ETA 20 min (T5 setup)", responded);
+const t5Start = Date.now();
+await setRole("u-disp");
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
+await sleep(400);
+const closedOnce = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "closed" && c.outcome === "Corrected" && !!document.querySelector("#toast .toast-undo"); });
+check("22d: close as Corrected shows the Undo toast", closedOnce);
+await page.evaluate(() => { document.querySelector("#toast .toast-undo").click(); });
+await sleep(400);
+const reopened = await page.evaluate(() => {
+  const c = DispatchStore.call("c2");
+  const r = c.responders.find((x) => x.userId === "u-m4");
+  return c.status === "open" && !!r && r.eta === "20 min";
+});
+check("22d: Undo reopens the call with the responder (ETA 20 min) restored", reopened);
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".card")];
+  cards.find((c) => c.innerText.includes("INC-1043")).querySelector('[data-action="correct-call"]').click();
+});
+await sleep(400);
+await page.evaluate(() => { [...document.querySelectorAll("#toast .toast-choice")].find((b) => b.innerText === "Corrected").click(); });
+await sleep(400);
+const closedAgain = await page.evaluate(() => { const c = DispatchStore.call("c2"); return c.status === "closed" && c.outcome === "Corrected"; });
+check("22d: close again as Corrected", closedAgain);
+const t5Secs = Math.round((Date.now() - t5Start) / 1000);
+console.log("T5 re-run (Fix 2): " + t5Secs + "s wall, 7 scripted taps (2 respond + 5 close/Undo/close), 0 errors — baseline ~3 min, ~6 taps, 0 errors");
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));

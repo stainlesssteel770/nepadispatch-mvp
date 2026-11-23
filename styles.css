@@ -404,8 +404,21 @@ dialog::backdrop { background: rgba(10, 20, 40, .55); }
 .dlg-error { background: #fde2e2; color: #7a1f16; border: 1px solid #f0b4b4; border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-weight: 700; }
 .req { color: var(--red); font-weight: 800; }
 .req-hint { color: var(--mute); font-weight: 600; font-size: .85rem; }
-/* Toast sits above the bottom tab bar, never behind it. */
-.toast { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--navy); color: #fff; padding: 12px 18px; border-radius: 12px; z-index: 20; max-width: 92vw; font-weight: 600; box-shadow: var(--sh-pop); pointer-events: none; transition: opacity var(--tr-slow), transform var(--tr-slow); }
+/* Toast docks UNDER the sticky header, not above the bottom tab bar
+   (Fix 2, v2 test Finding 2, sev 2): bottom-docked, the toast sat on
+   the last visible card's action bar for 8-10 s — the close toast
+   (195x230 at 390px) covered the Backup/Correct/Call segments of
+   INC-1042, and the Undo toast overlapped their bottom 11px. Up here
+   the toast zone (header 67px + 8px gap) holds only the banner,
+   warning line and headings at scroll 0 — no card action bar lives
+   there (first card top ~322px with the banner showing), and the
+   banner dismiss × (right edge) stays clear of the centred toast.
+   The body stays click-through (pointer-events: none) except the
+   toast's own buttons, and the dismiss/Undo behaviour is unchanged.
+   Residual edge: while the user scrolls with a toast up, a card
+   action bar can pass under the toast zone — transient, and the
+   click-through body still lets centre taps through. */
+.toast { position: fixed; left: 50%; top: calc(75px + env(safe-area-inset-top)); transform: translateX(-50%); background: var(--navy); color: #fff; padding: 12px 18px; border-radius: 12px; z-index: 20; max-width: 92vw; font-weight: 600; box-shadow: var(--sh-pop); pointer-events: none; transition: opacity var(--tr-slow), transform var(--tr-slow); }
 .toast.error { background: var(--red); }
 /* Undo button inside a toast: a real button, not plain text. It is
    the only tappable part of a toast — the toast body itself is

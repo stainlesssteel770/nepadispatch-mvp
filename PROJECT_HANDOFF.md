@@ -27,6 +27,8 @@ Design overhaul (PWA + bottom tabs) 2026-11-17 (same day, night): turn the proto
 
 Fix 1 — equipment return in the call detail (UI/UX test v2, Finding 1, sev 3; owner-approved 2026-11-23): the call detail now shows a "Mark returned" button (48px tall) next to each item out, dispatcher/coordinator only; tapping it returns the item in place and unblocks closing. The Menu → Equipment → "Mark returned" path is unchanged, and the close block (red toast naming the item) is unchanged. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fix1`, 206/206 smoke checks. See "Fix 1 — equipment return — 2026-11-23" below.
 
+Fix 2 — toasts no longer cover the card action bars (UI/UX test v2, Finding 2, sev 2; owner-approved 2026-11-23, Batch A): toasts are now docked under the sticky header instead of above the bottom tab bar. Bottom-docked, the choice toast (195×230 at 390px) covered the Backup/Correct/Call segments of the next card and the Undo toast overlapped their bottom 11px; top-docked, no visible card action bar is under either toast at scroll 0 or scrolled to the bottom, and the banner dismiss × stays clear. Toast text, outcome buttons, ✕ dismiss, ~8s Undo window and the card action bar layout are unchanged. NOT YET PUSHED — the parent agent verifies and pushes; `?v=20261123-fix2`, 215/215 smoke checks. See "Fix 2 — toast overlap — 2026-11-23" below.
+
 ## Architecture
 
 Plain HTML/CSS/JS, no build step, no framework, no network calls.
@@ -1434,5 +1436,107 @@ scripted seconds.
 
 `index.html` asset version bumped `?v=20261117-pwa` →
 `?v=20261123-fix1` (styles.css, seed.js, app.js, and the SW cache
+name matches). NOT YET PUSHED — the parent agent verifies and
+pushes; live-verification (md5) still to be done after the push.
+
+## Fix 2 — toast overlap — 2026-11-23
+
+UI/UX test v2 (Fri 2026-11-20, live `?v=20261117-pwa`), Finding 2,
+severity 2 — the close/Undo toasts overlaid the card action bars
+beneath them for 8–10 s, so a dispatcher closing one call then
+tapping the next card's Backup hit a dead spot. Owner approved the
+fix list 2026-11-23 (Batch A: Fix 1 first, then Fix 2 — one item
+per commit).
+
+### Change
+
+- styles.css, `.toast` only: `bottom: calc(76px +
+  env(safe-area-inset-bottom))` → `top: calc(75px +
+  env(safe-area-inset-top))`. The toast now docks directly under
+  the sticky header (measured 67px tall at 390px, safe-area 0)
+  instead of above the bottom tab bar. Nothing else about the
+  toast changed: same text, same three outcome buttons, same ✕,
+  same ~8 s Undo window, same click-through body
+  (`pointer-events: none` except the toast's own buttons), same
+  outside-tap dismiss on the choice toast, same deliberate
+  no-outside-dismiss on the Undo toast.
+
+### Measured before / after (390×844, dispatcher, Calls tab, scroll 0)
+
+Before (probe, pre-fix tree):
+- Choice toast 195×230 at x 98–293, y 538–768 — rect-overlapped
+  3 of the 5 visible segments of INC-1042's action bar (Backup,
+  Correct, Call; bar y 626–688). The toast body is click-through,
+  so `elementFromPoint` at the segment centres still returned the
+  segments — but the toast's buttons sit inside that rect, so taps
+  off-centre could land on a choice button, and the segments were
+  visually covered.
+- Undo toast 195×92 at y 676–768 — overlapped the same 3
+  segments' bottom 11px.
+- Scrolled +500 with the Undo toast up: no overlap (bars sit
+  above the bottom-docked toast once scrolled).
+
+After (probe + suite, fixed tree):
+- Choice toast 195×230 at y 75–305, Undo toast 195×92 at y
+  75–167 — 0 of 5 visible segments overlapped at scroll 0 and
+  scrolled to the bottom, all centres hit-test to the segments.
+  First card top 322px (banner showing) clears the choice toast
+  bottom (305) by 17px; with the banner dismissed the first card
+  top moves to 277px and its bar to y 581 — still clear.
+- The banner dismiss × (x 342–386, y 66–110) stays clear of the
+  centred toast (ends x 293) and hit-tests to itself while either
+  toast is up. The toast zone at scroll 0 covers only the banner
+  middle, the warning line and headings — no tappable control.
+
+### Residual edge (measured, not covered by the acceptance criteria)
+
+A fixed toast can always be scrolled under: parking a card's
+action bar under the toast zone (scroll +500, bar y 125–188) with
+a toast up, a 5×3 tap grid per segment shows the choice toast's
+stacked buttons (Corrected y 145–189, Not corrected y 197–241,
+Cancelled y 249–293, all x 116–245) block up to 10 of 15 sample
+points on the Correct segment (centre included), 6/15 on Backup,
+2/15 on Call; Add and Maps stay 15/15 clear. The Undo toast's
+single button (x 207–273, y 111–155) blocks at most 3/15 points
+(Call), all segment centres clear. This needs the user to scroll
+while a toast is up and then tap a bar parked under a toast they
+can see — at the natural scroll positions (scroll 0, bottom) the
+finding is fully fixed. Dismissing the toast on scroll was
+rejected: it would kill the Undo window when the user scrolls to
+look at another card.
+
+### Not changed
+
+Toast text; the three outcome buttons; the ✕ dismiss; the Undo
+duration (~8 s, verified still visible at ~6 s and gone by ~10 s);
+the card action bar layout; the choice toast's outside-tap dismiss
+(still works — 22c uses a real tap on the header brand); the Undo
+toast's deliberate no-outside-dismiss.
+
+### Tests
+
+New smoke section 22 (9 checks): 22a choice toast up — no
+visible action bar under it, 3 outcome buttons visible ≥44px;
+22b Undo toast up — same, Undo button visible ≥44px, plus the
+same check scrolled to the bottom, plus the ~8 s window
+(still visible at ~6 s, gone by ~10 s); 22c real tap elsewhere
+dismisses the choice toast, call stays open; 22d T5 re-run —
+respond with ETA 20 min, close as Corrected, Undo restores the
+responder, close again. Failing-test-first: on the pre-fix tree
+the run was 212/214 with only 22a and 22b (overlap) failing; after
+the fix, **215/215 passed**, zero page errors. The 20b SW checks
+hardcode the version token, so they were bumped to
+`20261123-fix2` with the rest.
+
+T5 re-run (Fix 2) vs baseline (~3 min, ~6 taps, 0 errors): 2s
+scripted wall, 7 scripted taps (2 respond + 5 close/Undo/close),
+0 errors — the close/Undo/close flow itself is 5 taps, one fewer
+than baseline; the human time saving is the unblocked next tap,
+not the scripted seconds.
+
+### Asset version
+
+`index.html` asset version bumped `?v=20261123-fix1` →
+`?v=20261123-fix2` (styles.css, seed.js, app.js, and the SW cache
 name matches). NOT YET PUSHED — the parent agent verifies and
 pushes; live-verification (md5) still to be done after the push.
