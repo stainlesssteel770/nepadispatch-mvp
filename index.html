@@ -11,15 +11,16 @@
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Dispatch MVP — Prototype (Fake Data)</title>
-<link rel="stylesheet" href="styles.css?v=20261123-fix8">
+<link rel="stylesheet" href="styles.css?v=20261125-polish">
 </head>
 <body>
 <header>
-  <button class="menu-btn" type="button" data-action="menu-open" aria-label="Open menu" aria-expanded="false">☰</button>
+  <button class="menu-btn" type="button" data-action="menu-open" aria-label="Open menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
   <div class="brand">
     <strong>Dispatch MVP</strong>
     <span class="tag">PROTOTYPE — FAKE DATA ONLY</span>
   </div>
+  <button type="button" class="who" data-action="menu-open" aria-label="Switch the fake user (opens the menu)"><span class="who-av" id="who-av" aria-hidden="true"></span><span class="who-role" id="who-role"></span></button>
 </header>
 
 <div id="alert-banner" class="alert-banner" hidden></div>
@@ -45,7 +46,7 @@
 <div id="menu-backdrop" data-action="menu-close" hidden></div>
 <aside id="menu" aria-label="Menu" hidden>
   <div class="menu-head">
-    <strong>Menu</strong>
+    <strong>Dispatch MVP</strong>
     <button type="button" class="btn small secondary" data-action="menu-close" aria-label="Close menu">✕</button>
   </div>
   <div id="menu-body"></div>
@@ -59,7 +60,7 @@
 
 <p class="foot">Static prototype for single-phone testing. No server, no network calls, no real dispatch. Caller details are hidden in the UI only — this does <em>not</em> prove server-side privacy enforcement. See README.md.</p>
 
-<script src="seed.js?v=20261123-fix8"></script>
-<script src="app.js?v=20261123-fix8"></script>
+<script src="seed.js?v=20261125-polish"></script>
+<script src="app.js?v=20261125-polish"></script>
 </body>
 </html>
