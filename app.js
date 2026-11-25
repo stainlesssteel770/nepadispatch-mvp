@@ -451,6 +451,28 @@ var Store = {
     this.log(this.user(userId).name + " unassigned from " + c.incident + " by " + this.me().name); this.save();
     return { ok: true };
   },
+  // On scene (added 2026-11-25, owner asked for it): a responder marks
+  // that they have arrived; a dispatcher/coordinator can mark any
+  // responder. Undo clears it. UI-enforced only, like every rule here.
+  setOnScene: function (callId, userId, on) {
+    var c = this.call(callId); if (!c) return { ok: false, error: "Call not found." };
+    if (c.status !== "open") return { ok: false, error: "Only an open call can be marked on scene." };
+    var r = c.responders.find(function (x) { return x.userId === userId; });
+    if (!r) return { ok: false, error: "That member is not responding to this call." };
+    if (userId !== this.me().id && !this.can("assign")) return { ok: false, error: "Only the responder or a dispatcher can change on-scene status." };
+    var name = this.user(userId).name;
+    if (on) {
+      if (r.onSceneAt) return { ok: false, error: name + " is already marked on scene." };
+      r.onSceneAt = nowISO();
+      this.log(name + " on scene at " + c.incident + (userId === this.me().id ? "" : " (marked by " + this.me().name + ")"));
+    } else {
+      if (!r.onSceneAt) return { ok: false, error: name + " is not marked on scene." };
+      delete r.onSceneAt;
+      this.log(name + " no longer on scene at " + c.incident + " (by " + this.me().name + ")");
+    }
+    this.save();
+    return { ok: true };
+  },
   // Dispatcher/coordinator assigns a member to an open call (the card's
   // "Add" segment). No duplicate assignment; ETA is "—" — dispatcher-
   // assigned, ETA unknown. Undo is the existing unassign (dispatcher).
@@ -799,6 +821,7 @@ function callCard(c) {
   var pills = c.responders.length
     ? c.responders.map(function (r) {
         var u = Store.user(r.userId);
+        if (r.onSceneAt) return '<span class="pill on-scene">' + esc(responderLabel(u)) + " · On scene</span>";
         var etaText = (r.eta && r.eta !== "—") ? r.eta : "ETA —";
         return '<span class="pill">' + esc(responderLabel(u)) + " · " + esc(etaText) + "</span>";
       }).join("")
@@ -1177,13 +1200,38 @@ function viewHome() {
 
 function viewCalls() {
   var h = "<h1>Calls</h1><p class=\"muted\">Newest first. Tap a call for details. List only — no map view in this version.</p>";
+  h += '<div class="search-box"><label for="call-search" class="sr-only">Search calls</label>' +
+    '<input type="search" id="call-search" placeholder="Search address, incident, nature, unit…" autocomplete="off" enterkeyhint="search" value="' + esc(App.callQuery || "") + '"></div>';
+  return h + '<div id="calls-results">' + callsResultsHTML() + "</div>";
+}
+// Text a call can be found by. Caller name/number are included only
+// when this user may see them, so a search can never reveal (or
+// confirm) a hidden caller — UI-only, like every privacy rule here.
+function callSearchText(c, me) {
+  var parts = [c.incident, c.address, c.nature, c.vehicle, c.notes, townOf(c.address), c.status === "closed" ? "closed " + outcomeLabel(c.outcome) : c.status, c.urgent ? "urgent" : ""];
+  c.responders.forEach(function (r) { var u = Store.user(r.userId); if (u) parts.push(u.name, u.unit || ""); });
+  if (Store.canSeeCaller(c, me.id)) parts.push(c.callerName, c.callerPhone);
+  return parts.filter(Boolean).join(" ").toLowerCase();
+}
+function callsResultsHTML() {
   // Drafts are dispatcher+ only (decided, D1 pass 5): members never
   // see them — not in this list, not in counts, not anywhere.
-  var isMember = Store.me().role === "member";
-  var open = Store.state.calls.filter(function (c) { return isMember ? c.status === "open" : c.status !== "closed"; });
-  var closed = Store.state.calls.filter(function (c) { return c.status === "closed"; });
-  h += "<h2>" + (isMember ? "Open" : "Open &amp; drafts") + "</h2>" + (open.length ? open.map(callCard).join("") : '<p class="empty">No open calls.</p>');
-  h += "<h2>Closed</h2>" + (closed.length ? closed.map(callCard).join("") : '<p class="empty">No closed calls yet.</p>');
+  var me = Store.me();
+  var isMember = me.role === "member";
+  var q = (App.callQuery || "").trim().toLowerCase();
+  var words = q ? q.split(/\s+/) : [];
+  var match = function (c) { if (!words.length) return true; var t = callSearchText(c, me); return words.every(function (w) { return t.indexOf(w) !== -1; }); };
+  var open = Store.state.calls.filter(function (c) { return (isMember ? c.status === "open" : c.status !== "closed") && match(c); });
+  var closed = Store.state.calls.filter(function (c) { return c.status === "closed" && match(c); });
+  var h = "";
+  if (words.length) {
+    var n = open.length + closed.length;
+    h += '<p class="search-count" role="status">' + (n ? n + (n === 1 ? " call matches" : " calls match") : "No calls match") + " “" + esc(App.callQuery.trim()) + "”. " +
+      '<button type="button" class="link-btn" data-action="search-clear">Clear search</button></p>';
+    if (!n) return h;
+  }
+  h += "<h2>" + (isMember ? "Open" : "Open &amp; drafts") + "</h2>" + (open.length ? open.map(callCard).join("") : '<p class="empty">' + (words.length ? "No open calls match." : "No open calls.") + "</p>");
+  h += "<h2>Closed</h2>" + (closed.length ? closed.map(callCard).join("") : '<p class="empty">' + (words.length ? "No closed calls match." : "No closed calls yet.") + "</p>");
   return h;
 }
 
@@ -1382,7 +1430,7 @@ function callDetailHTML(c) {
     } else reqText = "Denied by a dispatcher — you can request again.";
     h += "<dt>Your request</dt><dd>" + reqText + "</dd>";
   }
-  h += "<dt>Responding</dt><dd>" + (c.responders.length ? c.responders.map(function (r) { return userName(r.userId) + " (ETA " + esc(r.eta) + ")"; }).join(", ") : (c.status === "closed" ? "No responders" : "No one yet")) + "</dd>";
+  h += "<dt>Responding</dt><dd>" + (c.responders.length ? c.responders.map(function (r) { return userName(r.userId) + (r.onSceneAt ? " (On scene since " + esc(whenText(r.onSceneAt)) + ")" : " (ETA " + esc(r.eta) + ")"); }).join(", ") : (c.status === "closed" ? "No responders" : "No one yet")) + "</dd>";
   h += "<dt>Backup</dt><dd>" + (c.backupNeeded ? "NEEDED — alerted: " + esc(joinAnd(Store.backupRecipientNames())) : "Not needed") + "</dd>";
   // Equipment out (Fix 1, v2 test): one row per item, with a Return
   // control for dispatcher/coordinator right here. Hidden for other
@@ -1413,7 +1461,13 @@ function callDetailHTML(c) {
         '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
         '<div><button class="btn btn-block" type="submit">Respond to this call</button></div></form></section>';
     }
-    if (responding) h += '<p class="detail-note">You are responding to this call. Only a dispatcher can unassign you.</p>';
+    if (responding) {
+      var mine = c.responders.find(function (x) { return x.userId === me.id; });
+      h += '<section class="detail-sec"><h3>On scene</h3>' + (mine.onSceneAt
+        ? '<p class="detail-note">You marked yourself on scene at ' + esc(whenText(mine.onSceneAt)) + '.</p><button class="btn secondary" data-action="off-scene" data-id="' + c.id + '" data-user="' + me.id + '">Not on scene yet</button>'
+        : '<button class="btn btn-block go" data-action="on-scene" data-id="' + c.id + '" data-user="' + me.id + '">I’m on scene</button>') + "</section>";
+      h += '<p class="detail-note">You are responding to this call. Only a dispatcher can unassign you.</p>';
+    }
     var people = "";
     if (Store.can("backup") || responding) {
       people += c.backupNeeded
@@ -1421,6 +1475,14 @@ function callDetailHTML(c) {
         : '<button class="btn" data-action="backup-request" data-id="' + c.id + '">Request backup</button>';
     }
     if (Store.can("assign")) people += '<button class="btn secondary" data-action="add-member" data-id="' + c.id + '">Add a member</button>';
+    if (Store.can("assign")) {
+      c.responders.forEach(function (r) {
+        if (r.userId === me.id) return; // own status lives under "On scene"
+        people += r.onSceneAt
+          ? '<button class="btn secondary" data-action="off-scene" data-id="' + c.id + '" data-user="' + r.userId + '">' + "Undo " + userName(r.userId) + " on scene</button>"
+          : '<button class="btn secondary" data-action="on-scene" data-id="' + c.id + '" data-user="' + r.userId + '">Mark ' + userName(r.userId) + " on scene</button>";
+      });
+    }
     if (Store.can("unassign")) {
       c.responders.forEach(function (r) {
         people += '<button class="btn secondary" data-action="unassign" data-id="' + c.id + '" data-user="' + r.userId + '">Unassign ' + userName(r.userId) + "</button>";
@@ -1770,6 +1832,15 @@ document.addEventListener("click", function (e) {
     case "interstate": toast("Interstate button is a placeholder in this prototype — it sends nothing."); break;
     case "backup-request": r = Store.requestBackup(id); if (r.ok) toast("Backup requested — everyone alerted."); else showError(r.error); render(); if (r.ok && $("#dlg").open) { c = Store.call(id); if (c) openDialog(callDetailHTML(c)); } break;
     case "backup-clear": r = Store.clearBackup(id); if (r.ok) toast("Backup cleared."); else showError(r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
+    case "on-scene": case "off-scene": {
+      r = Store.setOnScene(id, el.dataset.user, a === "on-scene");
+      if (r.ok) toast(a === "on-scene" ? "Marked on scene." : "On-scene status cleared."); else showError(r.error);
+      render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
+    }
+    case "search-clear": {
+      App.callQuery = ""; var si = $("#call-search"); if (si) { si.value = ""; si.focus(); }
+      var res = $("#calls-results"); if (res) res.innerHTML = callsResultsHTML(); break;
+    }
     case "unassign": {
       // Two-tap in-app confirm (no native confirm): first tap arms the
       // button, second tap removes the responder.
@@ -2040,6 +2111,12 @@ document.addEventListener("submit", function (e) {
 
 /* address typeahead + history suggestions (offered, never auto-selected) */
 document.addEventListener("input", function (e) {
+  if (e.target.id === "call-search") {
+    // Re-render the results only, so the search box keeps focus.
+    App.callQuery = e.target.value;
+    var res = $("#calls-results"); if (res) res.innerHTML = callsResultsHTML();
+    return;
+  }
   if (e.target.id !== "nc-address" && e.target.id !== "nc-phone") return;
   var addr = ($("#nc-address") || {}).value || "";
   var phone = ($("#nc-phone") || {}).value || "";

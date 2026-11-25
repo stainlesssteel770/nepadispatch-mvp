@@ -2677,7 +2677,9 @@ const fix8Gap = async () => await page.evaluate(() => {
 let fix8 = await fix8Gap();
 check("30a: gap between last call card and footer at 390px is clear (>= 40px)", fix8.gap >= 40, "gap=" + fix8.gap + "px");
 check("30c: footer text unchanged", fix8.footText.includes("Static prototype for single-phone testing") && fix8.footText.includes("No server, no network calls, no real dispatch") && fix8.footText.includes("See README.md"), fix8.footText.slice(0, 120));
-check("30f: first call card top unchanged at 390px", fix8.firstTop >= 300 && fix8.firstTop <= 340, "firstTop=" + fix8.firstTop);
+// 2026-11-25: the Calls search box (about 65px) now sits above the
+// list, so the first card moves down by that much (was 322px).
+check("30f: first call card top at 390px (below the search box)", fix8.firstTop >= 365 && fix8.firstTop <= 405, "firstTop=" + fix8.firstTop);
 check("30g: no page overflow at 390px on Calls", fix8.docW <= 390, "docW=" + fix8.docW);
 // 30d: last card still fully tappable to open (fix-doc smoke check 2).
 const fix8LastInc = await page.evaluate(() => {
@@ -2789,6 +2791,67 @@ await setRole("u-coord");
 await goTab("dashboard");
 const p31g = await page.evaluate(() => [...document.querySelectorAll("main .stat")].map((t) => t.querySelector(".stat-l").innerText));
 check("31g: My stats shows five tiles with the same labels", JSON.stringify(p31g) === JSON.stringify(["Calls I’m on", "Covered by me (last 30 days)", "Open calls", "Covered calls", "Total calls"]), JSON.stringify(p31g));
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 32. Calls search + on-scene status (2026-11-25, owner said yes).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+const cardIncs = async () => await page.evaluate(() => [...document.querySelectorAll("main .call-card")].map((c) => (c.innerText.match(/INC-\d+/) || [""])[0]));
+await page.type("#call-search", "market"); await sleep(250);
+const p32a = { incs: await cardIncs(), focus: await page.evaluate(() => document.activeElement && document.activeElement.id), count: await page.evaluate(() => (document.querySelector(".search-count") || {}).innerText || "") };
+check("32a: typing in Calls search filters the list and keeps focus in the box", JSON.stringify(p32a.incs) === JSON.stringify(["INC-1043"]) && p32a.focus === "call-search" && /1 call matches/.test(p32a.count), JSON.stringify(p32a));
+await page.click('[data-action="search-clear"]'); await sleep(250);
+const p32b = { incs: (await cardIncs()).length, val: await page.evaluate(() => document.querySelector("#call-search").value) };
+check("32b: Clear search restores the full list", p32b.incs === 5 && p32b.val === "", JSON.stringify(p32b));
+await page.type("#call-search", "pa-05 flat"); await sleep(250);
+check("32c: search matches a responder's unit code plus a word from the nature", JSON.stringify(await cardIncs()) === JSON.stringify(["INC-1042"]), JSON.stringify(await cardIncs()));
+await page.click('[data-action="search-clear"]'); await sleep(200);
+await page.type("#call-search", "ben demo"); await sleep(250);
+const p32dDisp = await cardIncs();
+await setRole("u-m3");
+await goTab("calls");
+await page.evaluate(() => { const i = document.querySelector("#call-search"); i.value = ""; i.dispatchEvent(new Event("input", { bubbles: true })); });
+await page.type("#call-search", "ben demo"); await sleep(250);
+const p32dMem = { incs: await cardIncs(), count: await page.evaluate(() => (document.querySelector(".search-count") || {}).innerText || "") };
+check("32d: a hidden caller's name finds the call for a dispatcher but not for a member who can't see it", JSON.stringify(p32dDisp) === JSON.stringify(["INC-1043"]) && p32dMem.incs.length === 0 && /No calls match/.test(p32dMem.count), JSON.stringify({ disp: p32dDisp, mem: p32dMem }));
+await page.click('[data-action="search-clear"]'); await sleep(200);
+// On scene: member responds to INC-1043, marks on scene, then clears it.
+await openCard("INC-1043");
+await page.type("#eta", "15 min");
+await page.click('#respond-form button[type="submit"]'); await sleep(350);
+if (!(await page.evaluate(() => document.querySelector("#dlg").open))) await openCard("INC-1043");
+const p32eBtn = await page.evaluate(() => !!document.querySelector('#dlg [data-action="on-scene"]'));
+await page.click('#dlg [data-action="on-scene"]'); await sleep(350);
+const p32e = await page.evaluate(() => {
+  const c = DispatchStore.state.calls.find((x) => x.incident === "INC-1043");
+  const r = c.responders.find((x) => x.userId === "u-m3");
+  const card = [...document.querySelectorAll("main .call-card")].find((x) => x.innerText.includes("INC-1043"));
+  return { at: !!(r && r.onSceneAt), pill: card ? [...card.querySelectorAll(".pill")].map((p) => p.innerText) : [], detail: document.querySelector("#dlg-body").innerText.includes("On scene since"), undo: !!document.querySelector('#dlg [data-action="off-scene"]'), log: DispatchStore.state.activityLog[0].text };
+});
+check("32e: a responder marks themselves on scene — pill, detail and log update", p32eBtn && p32e.at && p32e.pill.some((t) => /· On scene/.test(t)) && p32e.detail && p32e.undo && /on scene at INC-1043/.test(p32e.log), JSON.stringify(p32e));
+await page.click('#dlg [data-action="off-scene"]'); await sleep(350);
+const p32f = await page.evaluate(() => {
+  const r = DispatchStore.state.calls.find((x) => x.incident === "INC-1043").responders.find((x) => x.userId === "u-m3");
+  const card = [...document.querySelectorAll("main .call-card")].find((x) => x.innerText.includes("INC-1043"));
+  return { at: !!r.onSceneAt, pill: card ? [...card.querySelectorAll(".pill")].map((p) => p.innerText) : [] };
+});
+check("32f: 'Not on scene yet' clears it and the pill shows the ETA again", !p32f.at && p32f.pill.some((t) => /15 min/.test(t)), JSON.stringify(p32f));
+await closeDlg();
+const p32g = await page.evaluate(() => {
+  const c = DispatchStore.state.calls.find((x) => x.incident === "INC-1042");
+  return DispatchStore.setOnScene(c.id, c.responders[0].userId, true);
+});
+check("32g: a member can't mark someone else on scene", p32g.ok === false, JSON.stringify(p32g));
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1042");
+const p32hBtn = await page.evaluate(() => { const b = document.querySelector('#dlg [data-action="on-scene"]'); return b ? b.innerText : ""; });
+if (p32hBtn) { await page.click('#dlg [data-action="on-scene"]'); await sleep(350); }
+const p32h = await page.evaluate(() => { const c = DispatchStore.state.calls.find((x) => x.incident === "INC-1042"); return { at: !!c.responders[0].onSceneAt, log: DispatchStore.state.activityLog[0].text }; });
+check("32h: a dispatcher can mark a responder on scene from the call sheet", /^Mark .+ on scene$/.test(p32hBtn) && p32h.at && /marked by/.test(p32h.log), JSON.stringify({ btn: p32hBtn, ...p32h }));
+await closeDlg();
 await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));

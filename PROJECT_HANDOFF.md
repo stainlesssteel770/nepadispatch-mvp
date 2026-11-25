@@ -44,7 +44,7 @@ Fix 7 — secondary control sizes (UI/UX test v2, Finding 8, sev 2; owner-approv
 
 Fix 8 — footer spacing (UI/UX test v2, Finding 9, sev 1; owner-approved 2026-11-23, Batch C): the last call card now sits 52px above the footer (was 28px) at every width — the Calls list gets a deeper main bottom pad, compensated by dropping the footer's bottom margin on Calls only so the document height and max-scroll geometry are unchanged. Footer text, card layout and bottom nav unchanged. PUSHED 2026-11-23 (commit 03302f8f) and live-verified; `?v=20261123-fix8`, 276/276 smoke checks. See "Fix 8 — footer spacing — 2026-11-23" below.
 
-Polish pass 2 (review + redesign, 2026-11-25): full review, broken/rough flows fixed, and a cleaner mobile-first look on top of the existing layout. Card colour meanings, labels and every settled owner decision unchanged. ON BRANCH `polish/review-and-redesign`, NOT merged (merging changes the live Pages site); `?v=20261125-polish`, 284/284 smoke checks. See "Polish pass 2 — 2026-11-25" below.
+Polish pass 2 (review + redesign, 2026-11-25): full review, broken/rough flows fixed, and a cleaner mobile-first look on top of the existing layout. Card colour meanings, labels and every settled owner decision unchanged. ON BRANCH `polish/review-and-redesign`, NOT merged (merging changes the live Pages site); `?v=20261125-polish`, 292/292 smoke checks; also adds on-scene status and Calls search. See "Polish pass 2 — 2026-11-25" below.
 
 ## Architecture
 
@@ -197,6 +197,8 @@ localStorage, with “Reset to fake seed data”, “Clear all my data”
 (blank slate), and JSON export/import on the My data tab.
 
 **Added 2026-11-23 (owner answers to the UI/UX test v2 open questions):** Q1-A — reopening a call restores the backup request too; close-clears-backup is a BUG, not intended (reopen is settled to restore state as it was). To be fixed as its own item (Batch A). Q2-B — the checkmark button label changes from "Correct" to "Close" (checkmark kept); the confirm toast still asks the outcome (Corrected / Not corrected / Cancelled). To be fixed as its own item (Batch A). Q3 — the builder's 390px browser measurements are enough; no real-phone re-check of the Decided log / first-card top / Home height is needed before calling the fixes done.
+
+**Added 2026-11-25 (owner said yes to two new features):** On-scene status — a responder taps "I’m on scene" on the call sheet (undo: "Not on scene yet"); a dispatcher/coordinator can mark or undo any responder. The pill then reads "PA-05 · On scene" (card colours unchanged), the sheet shows "On scene since …", and each change is logged. ETA itself is still not editable. Calls search — one box on the Calls tab matching incident, address, town, nature, vehicle, notes, status/outcome, responder names and unit codes; caller name/number are searchable only for users who can see them, so search never reveals a hidden caller (UI-only, like every rule here).
 
 ## What was built
 
@@ -2162,3 +2164,25 @@ on the page after; card has no role=button and a labelled chevron;
 Clear data asks in-app and Cancel keeps the data with no native
 dialog; Caller name marked required; banner line opens its call; My
 stats tiles keep their labels.
+
+### Added after the owner's yes (same branch): on-scene + Calls search
+
+- `Store.setOnScene(callId, userId, on)` sets or clears
+  `responder.onSceneAt` on an open call; self, or `can("assign")` for
+  anyone. Logged.
+- Pill "PA-05 · On scene" (✓ prefix, same pill colours); detail
+  "Responding" reads "Name (On scene since …)"; buttons "I’m on scene"
+  / "Not on scene yet" for the responder, "Mark … on scene" / "Undo …
+  on scene" for dispatchers.
+- Calls tab search box (sticky under the page title); typing re-renders
+  only `#calls-results`, so the box keeps focus. All words must match.
+  Match count is announced (`role="status"`) with a Clear search
+  button.
+- Tests: 30f's first-card-top range moved down by the search box
+  height (intentional). New section 32 (8 checks): filter + focus,
+  clear, unit code + nature, hidden caller not findable by a member,
+  responder on scene and undo, member can't mark others, dispatcher can.
+  292/292. The suite once crashed early ("DispatchStore is not
+  defined" around the draft put-out step) and passed on rerun; the
+  same crash happened once on the untouched baseline, so it is an
+  existing harness flake, not caused by this work.
