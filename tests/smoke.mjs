@@ -239,13 +239,15 @@ check("manage: equipment item added by coordinator", equipOk);
 const expOk = await page.evaluate(() => { try { const d = JSON.parse(DispatchStore.exportJSON()); return Array.isArray(d.calls) && Array.isArray(d.users); } catch (e) { return false; } });
 check("export JSON parses with calls+users", expOk);
 await goTab("data");
-await page.evaluate(() => { window.confirm = () => true; });
+// The app asks in its own dialog now (no native confirm()).
 await clickAction("data-clear");
+await clickAction("ask-yes");
 await sleep(300);
 const cleared = await page.evaluate(() => DispatchStore.state.calls.length === 0 && DispatchStore.state.equipment.length === 0);
 check("clear all my data empties calls+equipment", cleared);
 await goTab("data");
 await clickAction("data-reset");
+await clickAction("ask-yes");
 await sleep(300);
 const resetOk = await page.evaluate(() => DispatchStore.state.calls.length === 5 && DispatchStore.state.equipment.length === 6);
 check("reset to fake seed restores seed", resetOk, "calls=" + (await page.evaluate(() => DispatchStore.state.calls.length)));
@@ -326,7 +328,9 @@ check("tapping card body opens call detail", dlgOpen && dlgText.includes("INC-10
 await page.click('[data-action="close-dialog"]');
 await sleep(200);
 // (b) Add member picker assigns a member, ETA "—", pill + log
-const addVisible = await page.evaluate(() => [...document.querySelectorAll('[data-action="add-member"]')].length);
+// Count the card buttons only: the call detail sheet now has its own
+// "Add a member" button, which stays in the closed dialog's markup.
+const addVisible = await page.evaluate(() => [...document.querySelectorAll('main [data-action="add-member"]')].length);
 check("Add member shown to dispatcher on open calls", addVisible === 2, "count=" + addVisible);
 await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".card")];
@@ -896,8 +900,8 @@ const badgeOk = await page.evaluate(() => {
 });
 check("16-2: closed card badge reads 'Not corrected' with spaces", badgeOk && badgeOk.ok, JSON.stringify(badgeOk));
 await openCard("INC-1043");
-const detOk = await page.evaluate(() => { const t = document.querySelector("#dlg-body").innerText; return t.includes("closed (Not corrected)") && !t.includes("NotCorrected"); });
-check("16-2: call detail status reads 'closed (Not corrected)'", detOk);
+const detOk = await page.evaluate(() => { const t = document.querySelector("#dlg-body").innerText; return t.includes("Closed (Not corrected)") && !t.includes("NotCorrected"); });
+check("16-2: call detail status reads 'Closed (Not corrected)'", detOk);
 await closeDlg();
 await setRole("u-m4");
 await goTab("history");
@@ -1658,8 +1662,8 @@ const swOk = await page.evaluate(async () => {
   const keys = await cache.keys();
   return { supported: true, active: !!reg.active, caches: names, entries: keys.map((k) => { const u = new URL(k.url); return (u.pathname.split("/").pop() || "root") + u.search; }) };
 });
-check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261123-fix8"), JSON.stringify(swOk));
-check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261123-fix8", "app.js?v=20261123-fix8", "seed.js?v=20261123-fix8", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
+check("20b: service worker active with a versioned dispatch-mvp cache", swOk.supported && swOk.active && (swOk.caches || []).some((n) => n === "dispatch-mvp-20261125-polish"), JSON.stringify(swOk));
+check("20b: SW precache holds the app shell (index, css, js, seed, manifest, icons)", ["index.html", "styles.css?v=20261125-polish", "app.js?v=20261125-polish", "seed.js?v=20261125-polish", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-512-maskable.png"].every((f) => (swOk.entries || []).includes(f)), JSON.stringify(swOk.entries));
 await page.setOfflineMode(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await sleep(600);
@@ -1844,7 +1848,7 @@ const equipState = await page.evaluate(() => {
   const card = [...document.querySelectorAll(".card")].find((c) => c.innerText.includes("Hydraulic jack"));
   return card ? { text: card.innerText.replace(/\n/g, " "), hasReturn: !!card.querySelector('[data-action="return-equipment"]') } : null;
 });
-check("21c: Equipment page shows the jack back in stock (same state)", !!equipState && /in-stock/i.test(equipState.text) && !equipState.hasReturn, JSON.stringify(equipState));
+check("21c: Equipment page shows the jack back in stock (same state)", !!equipState && /in[- ]stock/i.test(equipState.text) && !equipState.hasReturn, JSON.stringify(equipState));
 // (d) the same call now closes as Corrected through the checkmark flow, Undo appears
 await goTab("calls");
 await page.evaluate(() => {
@@ -2633,10 +2637,10 @@ check("29d: every Manage nature-row control is at least 48px tall and 24px wide"
 await page.click('[data-action="nature-up"][data-name="Dead Battery / Jump Start"]'); await sleep(300);
 const fix7Moved = await page.evaluate(() => DispatchStore.state.callNatures[0]);
 check("29f: moving a nature up still works", fix7Moved === "Dead Battery / Jump Start", "first=" + fix7Moved);
-const fix7Rename = async (d) => { await d.accept("Lockout (renamed)"); };
-page.on("dialog", fix7Rename);
+// Rename uses the app's own text dialog now (no native prompt()).
 await page.click('[data-action="nature-edit"][data-name="Lockout"]'); await sleep(300);
-page.off("dialog", fix7Rename);
+await page.evaluate(() => { document.querySelector("#ask-input").value = "Lockout (renamed)"; });
+await page.click('#ask-form button[type="submit"]'); await sleep(300);
 const fix7Renamed = await page.evaluate(() => DispatchStore.state.callNatures.includes("Lockout (renamed)"));
 check("29f: renaming a nature still works", fix7Renamed, await page.evaluate(() => JSON.stringify(DispatchStore.state.callNatures)));
 const fix7Secs = Math.round((Date.now() - fix7Start) / 1000);
@@ -2673,7 +2677,9 @@ const fix8Gap = async () => await page.evaluate(() => {
 let fix8 = await fix8Gap();
 check("30a: gap between last call card and footer at 390px is clear (>= 40px)", fix8.gap >= 40, "gap=" + fix8.gap + "px");
 check("30c: footer text unchanged", fix8.footText.includes("Static prototype for single-phone testing") && fix8.footText.includes("No server, no network calls, no real dispatch") && fix8.footText.includes("See README.md"), fix8.footText.slice(0, 120));
-check("30f: first call card top unchanged at 390px", fix8.firstTop >= 300 && fix8.firstTop <= 340, "firstTop=" + fix8.firstTop);
+// 2026-11-25: the Calls search box (about 65px) now sits above the
+// list, so the first card moves down by that much (was 322px).
+check("30f: first call card top at 390px (below the search box)", fix8.firstTop >= 365 && fix8.firstTop <= 405, "firstTop=" + fix8.firstTop);
 check("30g: no page overflow at 390px on Calls", fix8.docW <= 390, "docW=" + fix8.docW);
 // 30d: last card still fully tappable to open (fix-doc smoke check 2).
 const fix8LastInc = await page.evaluate(() => {
@@ -2716,6 +2722,137 @@ check("30b: gap between last call card and footer at desktop width is clear (>= 
 console.log("Fix 8 gaps — 390px: " + fix8.gap + "px, desktop 1280px: " + fix8Desk.gap + "px (pre-fix: 28px at both); member Home docH=" + fix8Home + "px");
 await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
 await sleep(200);
+
+// 31. Polish pass (2026-11-25): behaviour added or changed on purpose.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+// 31a: member Home footer no longer overlaps the last row.
+await setRole("u-m3");
+await goTab("home");
+const p31a = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll("main .home-compact > *")];
+  return { lastBottom: Math.round(rows[rows.length - 1].getBoundingClientRect().bottom), footTop: Math.round(document.querySelector(".foot").getBoundingClientRect().top), doc: document.documentElement.scrollHeight };
+});
+check("31a: member Home footer sits below the last row, still one screen", p31a.footTop >= p31a.lastBottom && p31a.doc <= 844, JSON.stringify(p31a));
+// 31b: a toast raised while the call sheet is open shows on top of it.
+await goTab("calls");
+await openCard("INC-1043");
+await page.click('#dlg [data-action="request-callback"]'); await sleep(300);
+const p31b = await page.evaluate(() => {
+  const t = document.querySelector("#toast"), r = t.getBoundingClientRect();
+  // The toast ignores taps outside its buttons (pointer-events: none),
+  // so turn hit-testing on just for this paint-order probe.
+  const pe = t.style.pointerEvents; t.style.pointerEvents = "auto";
+  const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  t.style.pointerEvents = pe;
+  return { inDialog: !!t.closest("#dlg"), visible: !t.hidden && r.height > 0, onTop: !!top && t.contains(top), text: t.innerText };
+});
+check("31b: toast shows on top of an open call sheet", p31b.inDialog && p31b.visible && p31b.onTop && /Request sent/.test(p31b.text), JSON.stringify(p31b));
+await closeDlg();
+const p31bBack = await page.evaluate(() => document.querySelector("#toast").parentNode === document.body);
+check("31b: toast moves back to the page when the sheet closes", p31bBack);
+// 31c: call cards are not one big button; the chevron is its own named button.
+const p31c = await page.evaluate(() => {
+  const card = document.querySelector("main .call-card");
+  const chev = card && card.querySelector("button.card-chev");
+  return { role: card && card.getAttribute("role"), chev: !!chev, label: chev ? chev.getAttribute("aria-label") : "" };
+});
+check("31c: call card has no role=button and its chevron is a labelled button", p31c.role !== "button" && p31c.chev && /^Open INC-/.test(p31c.label), JSON.stringify(p31c));
+// 31d: in-app confirm — Cancel keeps the data, nothing native pops up.
+let p31dNative = false;
+const p31dDlg = () => { p31dNative = true; };
+page.on("dialog", p31dDlg);
+await setRole("u-coord");
+await goTab("data");
+await clickAction("data-clear"); await sleep(200);
+const p31dAsk = await page.evaluate(() => ({ open: document.querySelector("#dlg").open, yes: !!document.querySelector('#dlg [data-action="ask-yes"]') }));
+await page.click('#dlg [data-action="close-dialog"]'); await sleep(250);
+const p31dKept = await page.evaluate(() => DispatchStore.state.calls.length);
+page.off("dialog", p31dDlg);
+check("31d: 'Clear all my data' asks in the app's own sheet; Cancel keeps the data", p31dAsk.open && p31dAsk.yes && p31dKept === 5 && !p31dNative, JSON.stringify({ ...p31dAsk, calls: p31dKept, native: p31dNative }));
+// 31e: New call marks Caller name required, and blocks review without it.
+await setRole("u-disp");
+await goTab("new");
+const p31e = await page.evaluate(() => {
+  const lab = document.querySelector('label[for="nc-name"]');
+  return { marked: !!lab && !!lab.querySelector(".req"), aria: document.querySelector("#nc-name").getAttribute("aria-required") };
+});
+check("31e: New call marks Caller name as required", p31e.marked && p31e.aria === "true", JSON.stringify(p31e));
+// 31f: the new-call banner line opens that call.
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+const p31fHas = await page.evaluate(() => { const b = document.querySelector("#alert-banner"); return !!b && !b.hidden && !!b.querySelector(".banner-line"); });
+if (p31fHas) { await page.click("#alert-banner .banner-line"); await sleep(300); }
+const p31f = await page.evaluate(() => ({ open: document.querySelector("#dlg").open, text: document.querySelector("#dlg-body").innerText.slice(0, 40) }));
+check("31f: tapping the new-call banner opens that call", p31fHas && p31f.open && /INC-/.test(p31f.text), JSON.stringify(p31f));
+await closeDlg();
+// 31g: My stats shows numbers as tiles, labels unchanged.
+await setRole("u-coord");
+await goTab("dashboard");
+const p31g = await page.evaluate(() => [...document.querySelectorAll("main .stat")].map((t) => t.querySelector(".stat-l").innerText));
+check("31g: My stats shows five tiles with the same labels", JSON.stringify(p31g) === JSON.stringify(["Calls I’m on", "Covered by me (last 30 days)", "Open calls", "Covered calls", "Total calls"]), JSON.stringify(p31g));
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+
+// 32. Calls search + on-scene status (2026-11-25, owner said yes).
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
+await page.reload({ waitUntil: "networkidle0" }); await sleep(400);
+await setRole("u-disp");
+await goTab("calls");
+const cardIncs = async () => await page.evaluate(() => [...document.querySelectorAll("main .call-card")].map((c) => (c.innerText.match(/INC-\d+/) || [""])[0]));
+await page.type("#call-search", "market"); await sleep(250);
+const p32a = { incs: await cardIncs(), focus: await page.evaluate(() => document.activeElement && document.activeElement.id), count: await page.evaluate(() => (document.querySelector(".search-count") || {}).innerText || "") };
+check("32a: typing in Calls search filters the list and keeps focus in the box", JSON.stringify(p32a.incs) === JSON.stringify(["INC-1043"]) && p32a.focus === "call-search" && /1 call matches/.test(p32a.count), JSON.stringify(p32a));
+await page.click('[data-action="search-clear"]'); await sleep(250);
+const p32b = { incs: (await cardIncs()).length, val: await page.evaluate(() => document.querySelector("#call-search").value) };
+check("32b: Clear search restores the full list", p32b.incs === 5 && p32b.val === "", JSON.stringify(p32b));
+await page.type("#call-search", "pa-05 flat"); await sleep(250);
+check("32c: search matches a responder's unit code plus a word from the nature", JSON.stringify(await cardIncs()) === JSON.stringify(["INC-1042"]), JSON.stringify(await cardIncs()));
+await page.click('[data-action="search-clear"]'); await sleep(200);
+await page.type("#call-search", "ben demo"); await sleep(250);
+const p32dDisp = await cardIncs();
+await setRole("u-m3");
+await goTab("calls");
+await page.evaluate(() => { const i = document.querySelector("#call-search"); i.value = ""; i.dispatchEvent(new Event("input", { bubbles: true })); });
+await page.type("#call-search", "ben demo"); await sleep(250);
+const p32dMem = { incs: await cardIncs(), count: await page.evaluate(() => (document.querySelector(".search-count") || {}).innerText || "") };
+check("32d: a hidden caller's name finds the call for a dispatcher but not for a member who can't see it", JSON.stringify(p32dDisp) === JSON.stringify(["INC-1043"]) && p32dMem.incs.length === 0 && /No calls match/.test(p32dMem.count), JSON.stringify({ disp: p32dDisp, mem: p32dMem }));
+await page.click('[data-action="search-clear"]'); await sleep(200);
+// On scene: member responds to INC-1043, marks on scene, then clears it.
+await openCard("INC-1043");
+await page.type("#eta", "15 min");
+await page.click('#respond-form button[type="submit"]'); await sleep(350);
+if (!(await page.evaluate(() => document.querySelector("#dlg").open))) await openCard("INC-1043");
+const p32eBtn = await page.evaluate(() => !!document.querySelector('#dlg [data-action="on-scene"]'));
+await page.click('#dlg [data-action="on-scene"]'); await sleep(350);
+const p32e = await page.evaluate(() => {
+  const c = DispatchStore.state.calls.find((x) => x.incident === "INC-1043");
+  const r = c.responders.find((x) => x.userId === "u-m3");
+  const card = [...document.querySelectorAll("main .call-card")].find((x) => x.innerText.includes("INC-1043"));
+  return { at: !!(r && r.onSceneAt), pill: card ? [...card.querySelectorAll(".pill")].map((p) => p.innerText) : [], detail: document.querySelector("#dlg-body").innerText.includes("On scene since"), undo: !!document.querySelector('#dlg [data-action="off-scene"]'), log: DispatchStore.state.activityLog[0].text };
+});
+check("32e: a responder marks themselves on scene — pill, detail and log update", p32eBtn && p32e.at && p32e.pill.some((t) => /· On scene/.test(t)) && p32e.detail && p32e.undo && /on scene at INC-1043/.test(p32e.log), JSON.stringify(p32e));
+await page.click('#dlg [data-action="off-scene"]'); await sleep(350);
+const p32f = await page.evaluate(() => {
+  const r = DispatchStore.state.calls.find((x) => x.incident === "INC-1043").responders.find((x) => x.userId === "u-m3");
+  const card = [...document.querySelectorAll("main .call-card")].find((x) => x.innerText.includes("INC-1043"));
+  return { at: !!r.onSceneAt, pill: card ? [...card.querySelectorAll(".pill")].map((p) => p.innerText) : [] };
+});
+check("32f: 'Not on scene yet' clears it and the pill shows the ETA again", !p32f.at && p32f.pill.some((t) => /15 min/.test(t)), JSON.stringify(p32f));
+await closeDlg();
+const p32g = await page.evaluate(() => {
+  const c = DispatchStore.state.calls.find((x) => x.incident === "INC-1042");
+  return DispatchStore.setOnScene(c.id, c.responders[0].userId, true);
+});
+check("32g: a member can't mark someone else on scene", p32g.ok === false, JSON.stringify(p32g));
+await setRole("u-disp");
+await goTab("calls");
+await openCard("INC-1042");
+const p32hBtn = await page.evaluate(() => { const b = document.querySelector('#dlg [data-action="on-scene"]'); return b ? b.innerText : ""; });
+if (p32hBtn) { await page.click('#dlg [data-action="on-scene"]'); await sleep(350); }
+const p32h = await page.evaluate(() => { const c = DispatchStore.state.calls.find((x) => x.incident === "INC-1042"); return { at: !!c.responders[0].onSceneAt, log: DispatchStore.state.activityLog[0].text }; });
+check("32h: a dispatcher can mark a responder on scene from the call sheet", /^Mark .+ on scene$/.test(p32hBtn) && p32h.at && /marked by/.test(p32h.log), JSON.stringify({ btn: p32hBtn, ...p32h }));
+await closeDlg();
+await page.evaluate(() => { DispatchStore.resetToSeed(); });
 
 check("no page errors", errors.length === 0, errors.join(" | ").slice(0, 300));
 

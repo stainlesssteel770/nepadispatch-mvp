@@ -18,6 +18,16 @@ function uid(prefix) { return prefix + "-" + Date.now().toString(36) + Math.floo
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function nowISO() { return new Date().toISOString(); }
 function fmtDT(s) { if (!s) return "—"; var d = new Date(s); return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}); }
+// Short time for cards and the detail header: "2:20 PM" today,
+// "Nov 17 · 2:20 PM" on any other day (a closed call from last week
+// used to show only its time, which read as today).
+function whenText(s) {
+  if (!s) return "";
+  var d = new Date(s), now = new Date();
+  var t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return t;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " · " + t;
+}
 // Join ["a", "b", "c"] as "a, b and c" (one item: "a"; two: "a and b").
 function joinAnd(items) {
   if (items.length <= 1) return items.join("");
@@ -32,6 +42,17 @@ var toastTimer = null;
 var toastOutsideHandler = null;
 // Shared teardown for every toast kind: clear the timer and drop the
 // outside-tap dismiss listener (only the choice toast registers one).
+// Toasts live in the top layer while a dialog is open: a native
+// <dialog> sits above every z-index, so a toast left in <body> would be
+// hidden behind it (e.g. "Backup requested" fired from the call detail
+// was invisible). The toast moves into the open dialog, and back to
+// <body> when the dialog closes (see the dialog close listener).
+function mountToast() {
+  var t = $("#toast"), d = $("#dlg");
+  var host = (d && d.open) ? d : document.body;
+  if (t.parentNode !== host) host.appendChild(t);
+  return t;
+}
 function clearToastState() {
   if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
   if (toastOutsideHandler) { document.removeEventListener("click", toastOutsideHandler, true); toastOutsideHandler = null; }
@@ -42,7 +63,7 @@ function hideToast() {
   t.hidden = true; t.classList.remove("error", "choices"); t.innerHTML = "";
 }
 function toast(msg, ms, isErr) {
-  var t = $("#toast");
+  var t = mountToast();
   clearToastState();
   t.classList.remove("choices"); t.innerHTML = "";
   t.textContent = msg; t.classList.toggle("error", !!isErr); t.hidden = false;
@@ -55,7 +76,7 @@ function toastErr(msg) { toast(msg, 8000, true); }
 // dismiss the toast before its window ends — only tapping the toast
 // itself or the timer does.
 function toastAction(msg, label, fn, ms) {
-  var t = $("#toast");
+  var t = mountToast();
   clearToastState();
   t.classList.remove("choices"); t.innerHTML = "";
   var span = document.createElement("span");
@@ -75,7 +96,7 @@ function toastAction(msg, label, fn, ms) {
 // the tap that opened it cannot dismiss it in the same bubble. The
 // toast also auto-dismisses after ~15s.
 function toastChoices(msg, choices, onPick, ms) {
-  var t = $("#toast");
+  var t = mountToast();
   clearToastState();
   t.classList.remove("error"); t.classList.add("choices"); t.innerHTML = "";
   var span = document.createElement("span");
@@ -430,6 +451,28 @@ var Store = {
     this.log(this.user(userId).name + " unassigned from " + c.incident + " by " + this.me().name); this.save();
     return { ok: true };
   },
+  // On scene (added 2026-11-25, owner asked for it): a responder marks
+  // that they have arrived; a dispatcher/coordinator can mark any
+  // responder. Undo clears it. UI-enforced only, like every rule here.
+  setOnScene: function (callId, userId, on) {
+    var c = this.call(callId); if (!c) return { ok: false, error: "Call not found." };
+    if (c.status !== "open") return { ok: false, error: "Only an open call can be marked on scene." };
+    var r = c.responders.find(function (x) { return x.userId === userId; });
+    if (!r) return { ok: false, error: "That member is not responding to this call." };
+    if (userId !== this.me().id && !this.can("assign")) return { ok: false, error: "Only the responder or a dispatcher can change on-scene status." };
+    var name = this.user(userId).name;
+    if (on) {
+      if (r.onSceneAt) return { ok: false, error: name + " is already marked on scene." };
+      r.onSceneAt = nowISO();
+      this.log(name + " on scene at " + c.incident + (userId === this.me().id ? "" : " (marked by " + this.me().name + ")"));
+    } else {
+      if (!r.onSceneAt) return { ok: false, error: name + " is not marked on scene." };
+      delete r.onSceneAt;
+      this.log(name + " no longer on scene at " + c.incident + " (by " + this.me().name + ")");
+    }
+    this.save();
+    return { ok: true };
+  },
   // Dispatcher/coordinator assigns a member to an open call (the card's
   // "Add" segment). No duplicate assignment; ETA is "—" — dispatcher-
   // assigned, ETA unknown. Undo is the existing unassign (dispatcher).
@@ -769,7 +812,7 @@ function callCard(c) {
   if (c.backupNeeded) badges.push('<span class="badge backup">BACKUP NEEDED</span>');
   if (c.status === "draft") badges.push('<span class="badge draft">DRAFT</span>');
   if (c.status === "closed") badges.push('<span class="badge closed">CLOSED — ' + esc(outcomeLabel(c.outcome)) + '</span>');
-  var time = new Date(c.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  var time = whenText(c.createdAt);
   // Fix 3 (2026-11-23, v2 Finding 3): the responder's ETA rides on
   // the pill — "PA-05 · 20 min". Dispatcher-assigned members have
   // no ETA (r.eta is "—"), so the absence is explicit: "PA-05 · ETA —".
@@ -778,10 +821,11 @@ function callCard(c) {
   var pills = c.responders.length
     ? c.responders.map(function (r) {
         var u = Store.user(r.userId);
+        if (r.onSceneAt) return '<span class="pill on-scene">' + esc(responderLabel(u)) + " · On scene</span>";
         var etaText = (r.eta && r.eta !== "—") ? r.eta : "ETA —";
         return '<span class="pill">' + esc(responderLabel(u)) + " · " + esc(etaText) + "</span>";
       }).join("")
-    : '<span class="pill dim">No one yet</span>';
+    : '<span class="pill dim">' + (isOpen || c.status === "draft" ? "No one yet" : "No responders") + "</span>";
   var mapsUrl = c.mapsLink || ("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(c.address));
   var bar = '<div class="card-bar">';
   if (isOpen && Store.can("assign")) {
@@ -793,7 +837,7 @@ function callCard(c) {
       : '<button class="bar-seg" data-action="backup-request" data-id="' + c.id + '" aria-label="Request backup">' + ICONS.bell + "<span>Backup</span></button>";
   }
   if (isOpen && Store.can("close")) {
-    bar += '<button class="bar-seg act-correct" data-action="correct-call" data-id="' + c.id + '" aria-label="Close this call as Corrected">' + ICONS.check + "<span>Close</span></button>";
+    bar += '<button class="bar-seg act-correct" data-action="correct-call" data-id="' + c.id + '" aria-label="Close this call">' + ICONS.check + "<span>Close</span></button>";
   }
   if (canSee) {
     bar += '<a class="bar-seg" href="tel:' + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + '" aria-label="Call the caller back">' + ICONS.phone + "<span>Call</span></a>";
@@ -828,10 +872,15 @@ function callCard(c) {
       '<div class="card-eta-error" role="alert" hidden></div>' +
       "</div>";
   }
-  return '<article class="card call-card' + stateClass + (c.backupNeeded ? " backup" : "") + '" data-action="open-call" data-id="' + c.id + '" tabindex="0" role="button" aria-label="Open ' + esc(c.incident) + ' — ' + esc(c.nature) + '">' + strip +
+  // The card is a plain <article> (tappable anywhere, and Enter/Space
+  // when focused), NOT role="button": a button may not contain the
+  // links and buttons of the action bar, and screen readers announced
+  // the whole card as one giant button. The chevron is the real,
+  // labelled open button.
+  return '<article class="card call-card' + stateClass + (c.backupNeeded ? " backup" : "") + '" data-action="open-call" data-id="' + c.id + '" tabindex="0" aria-label="' + esc(c.incident) + ' — ' + esc(c.nature) + '">' + strip +
     '<div class="card-head"><div class="card-addr"><span class="pin">' + ICONS.pin + "</span>" + esc(c.address) + '</div>' +
     '<div class="card-inc">' + esc(c.incident) + '<span class="time">' + esc(time) + "</span></div>" +
-    '<span class="card-chev" aria-hidden="true">' + ICONS.chev + "</span></div>" +
+    '<button type="button" class="card-chev" data-action="open-call" data-id="' + c.id + '" aria-label="Open ' + esc(c.incident) + ' — ' + esc(c.nature) + '">' + ICONS.chev + "</button></div>" +
     (badges.length ? '<div class="badges">' + badges.join(" ") + "</div>" : "") +
     '<div class="card-row"><span class="ic">' + ICONS.info + '</span><span class="val"><strong>' + esc(c.nature) + "</strong>" +
     (c.vehicle ? ' · <span class="veh">' + esc(c.vehicle) + "</span>" : "") + "</span></div>" +
@@ -886,7 +935,7 @@ function renderMenu() {
   b.innerHTML = menuGroups().map(function (g) {
     return '<div class="menu-group"><h3>' + esc(g.heading) + "</h3>" +
       g.items.map(function (t) {
-        return '<button type="button" class="menu-item" data-action="tab" data-tab="' + t[0] + '"' + (App.tab === t[0] ? ' aria-current="true"' : "") + ">" + esc(t[1]) + "</button>";
+        return '<button type="button" class="menu-item" data-action="tab" data-tab="' + t[0] + '"' + (App.tab === t[0] ? ' aria-current="true"' : "") + '><span class="menu-ic" aria-hidden="true">' + ICONS[TAB_ICON[t[0]] || "list"] + "</span>" + esc(t[1]) + "</button>";
       }).join("") + "</div>";
   }).join("");
 }
@@ -971,6 +1020,11 @@ function render() {
   sel.innerHTML = Store.state.users.map(function (u) {
     return '<option value="' + u.id + '"' + (u.id === me.id ? " selected" : "") + ">" + esc(u.name) + " — " + roleLabel(u.role) + (u.inventoryManager ? " + inventory" : "") + "</option>";
   }).join("");
+  // Header chip: who you are signed in as (the fake user), one tap to
+  // the menu where the switcher lives.
+  var av = $("#who-av"), wr = $("#who-role");
+  if (av) av.textContent = me.name.split(" ").map(function (w) { return w.charAt(0); }).join("").slice(0, 2).toUpperCase();
+  if (wr) wr.textContent = me.unit && me.unit.trim() ? me.unit.trim() : roleLabel(me.role);
   var tabs = primaryTabs();
   var all = allTabs();
   if (!all.some(function (t) { return t[0] === App.tab; })) App.tab = "home";
@@ -1013,7 +1067,7 @@ function render() {
       banner.hidden = false;
       banner.className = "alert-banner" + (visible.some(function (a) { return a.urgent; }) ? " urgent" : "");
       banner.innerHTML = '<button type="button" class="banner-x" data-action="dismiss-banner" aria-label="Dismiss announcements">✕</button>' +
-        '<div class="banner-line">' + esc(visible[0].text) + (visible.length > 1 ? ' <span class="muted">+' + (visible.length - 1) + " more</span>" : "") + "</div>" +
+        '<button type="button" class="banner-line" data-action="open-call" data-id="' + esc(visible[0].callId) + '">' + esc(visible[0].text) + (visible.length > 1 ? ' <span class="muted">+' + (visible.length - 1) + " more</span>" : "") + "</button>" +
         // Fix 4 (v2 test, Finding 4): when the most recent live alert
         // is a backup request, name who was told — the roles, from
         // alertTargets (names don't fit the one-line banner; the full
@@ -1105,9 +1159,16 @@ function viewHome() {
   if (me.role === "member") return viewHomeMember(me, mine, needMe, backup);
   var h = "<h1>What needs my attention</h1>";
   h += '<p class="muted">Signed in as <strong>' + esc(me.name) + "</strong> (" + roleLabel(me.role) + (me.inventoryManager ? " + inventory manager" : "") + ").</p>";
+  var uncovered = open.filter(function (c) { return !c.responders.length; }).length;
+  var pendReq = Store.can("approve-hidden") ? Store.state.hiddenRequests.filter(function (r) { return r.status === "pending"; }).length : 0;
+  h += '<div class="stats"><div class="stat"><span class="stat-n">' + open.length + '</span><span class="stat-l">Open</span></div>' +
+    '<div class="stat' + (uncovered ? " warn-stat" : "") + '"><span class="stat-n">' + uncovered + '</span><span class="stat-l">No one yet</span></div>' +
+    '<div class="stat' + (backup.length ? " warn-stat" : "") + '"><span class="stat-n">' + backup.length + '</span><span class="stat-l">Backup</span></div>' +
+    (Store.can("approve-hidden") ? '<button type="button" class="stat stat-link" data-action="tab" data-tab="requests"><span class="stat-n">' + pendReq + '</span><span class="stat-l">Requests</span></button>' : "") +
+    "</div>";
   if (backup.length) h += '<div class="attention"><strong>Backup needed:</strong> ' + backup.map(function (c) { return esc(c.incident) + " — " + esc(c.nature); }).join("; ") + "</div>";
   if (mine.length) h += "<h2>My calls right now</h2>" + mine.map(callCard).join("");
-  else h += '<p class="empty">You are not responding to any call right now.</p>';
+  else if (Store.can("respond")) h += '<p class="empty">You are not responding to any call right now.</p>';
   // My privacy requests (item 4b): the signed-in member's own
   // hidden-data requests, with status and a link back to each call —
   // so a request is still visible after its toast fades.
@@ -1122,7 +1183,7 @@ function viewHome() {
           ? "Approved — grant expired " + fmtDT(r.expiresAt)
           : "Approved" + (r.expiresAt ? " until " + fmtDT(r.expiresAt) : " (forever)");
       } else st = "Denied by a dispatcher";
-      return '<article class="card light"><h3>' + esc(rc ? rc.incident : r.callId) + (rc ? " — " + esc(rc.nature) : "") + "</h3>" +
+      return '<article class="card light item"><h3>' + esc(rc ? rc.incident : r.callId) + (rc ? " — " + esc(rc.nature) : "") + "</h3>" +
         '<p class="muted">Fields: ' + esc(r.fields.join(", ")) + " · " + esc(st) + "</p>" +
         (rc ? '<button class="btn small" data-action="open-call" data-id="' + rc.id + '">Open call</button>' : "") + "</article>";
     }).join("");
@@ -1138,14 +1199,39 @@ function viewHome() {
 }
 
 function viewCalls() {
-  var h = "<h1>Calls</h1><p class=\"muted\">List only — no map view in this version.</p>";
+  var h = "<h1>Calls</h1><p class=\"muted\">Newest first. Tap a call for details. List only — no map view in this version.</p>";
+  h += '<div class="search-box"><label for="call-search" class="sr-only">Search calls</label>' +
+    '<input type="search" id="call-search" placeholder="Search address, incident, nature, unit…" autocomplete="off" enterkeyhint="search" value="' + esc(App.callQuery || "") + '"></div>';
+  return h + '<div id="calls-results">' + callsResultsHTML() + "</div>";
+}
+// Text a call can be found by. Caller name/number are included only
+// when this user may see them, so a search can never reveal (or
+// confirm) a hidden caller — UI-only, like every privacy rule here.
+function callSearchText(c, me) {
+  var parts = [c.incident, c.address, c.nature, c.vehicle, c.notes, townOf(c.address), c.status === "closed" ? "closed " + outcomeLabel(c.outcome) : c.status, c.urgent ? "urgent" : ""];
+  c.responders.forEach(function (r) { var u = Store.user(r.userId); if (u) parts.push(u.name, u.unit || ""); });
+  if (Store.canSeeCaller(c, me.id)) parts.push(c.callerName, c.callerPhone);
+  return parts.filter(Boolean).join(" ").toLowerCase();
+}
+function callsResultsHTML() {
   // Drafts are dispatcher+ only (decided, D1 pass 5): members never
   // see them — not in this list, not in counts, not anywhere.
-  var isMember = Store.me().role === "member";
-  var open = Store.state.calls.filter(function (c) { return isMember ? c.status === "open" : c.status !== "closed"; });
-  var closed = Store.state.calls.filter(function (c) { return c.status === "closed"; });
-  h += "<h2>" + (isMember ? "Open" : "Open &amp; drafts") + "</h2>" + (open.length ? open.map(callCard).join("") : '<p class="empty">No open calls.</p>');
-  h += "<h2>Closed</h2>" + (closed.length ? closed.map(callCard).join("") : '<p class="empty">No closed calls yet.</p>');
+  var me = Store.me();
+  var isMember = me.role === "member";
+  var q = (App.callQuery || "").trim().toLowerCase();
+  var words = q ? q.split(/\s+/) : [];
+  var match = function (c) { if (!words.length) return true; var t = callSearchText(c, me); return words.every(function (w) { return t.indexOf(w) !== -1; }); };
+  var open = Store.state.calls.filter(function (c) { return (isMember ? c.status === "open" : c.status !== "closed") && match(c); });
+  var closed = Store.state.calls.filter(function (c) { return c.status === "closed" && match(c); });
+  var h = "";
+  if (words.length) {
+    var n = open.length + closed.length;
+    h += '<p class="search-count" role="status">' + (n ? n + (n === 1 ? " call matches" : " calls match") : "No calls match") + " “" + esc(App.callQuery.trim()) + "”. " +
+      '<button type="button" class="link-btn" data-action="search-clear">Clear search</button></p>';
+    if (!n) return h;
+  }
+  h += "<h2>" + (isMember ? "Open" : "Open &amp; drafts") + "</h2>" + (open.length ? open.map(callCard).join("") : '<p class="empty">' + (words.length ? "No open calls match." : "No open calls.") + "</p>");
+  h += "<h2>Closed</h2>" + (closed.length ? closed.map(callCard).join("") : '<p class="empty">' + (words.length ? "No closed calls match." : "No closed calls yet.") + "</p>");
   return h;
 }
 
@@ -1165,31 +1251,41 @@ function viewNewCall() {
     s.callNatures.map(function (n) { return '<option value="' + esc(n) + '"' + (d.nature === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("");
   var alertKind = d.alertKind || "normal";
   var h = "<h1>" + (editing ? "Edit draft " + esc(editing.incident) : "New call") + "</h1>";
-  h += '<form id="new-call-form">' +
-    '<label for="nc-nature">Call nature</label><select id="nc-nature" name="nature">' + opts + "</select>" +
-    '<label for="nc-address">Address</label><input type="text" id="nc-address" name="address" list="addr-list" placeholder="Start typing an address…" autocomplete="off" value="' + esc(d.address || "") + '">' +
+  // Grouped into three panels (what, caller, alert). Every field that
+  // createCall requires is marked — Caller name was required but
+  // unmarked, so the first sign of it was an error on Review.
+  var reqMark = ' <span class="req" aria-hidden="true">*</span>';
+  h += '<p class="muted form-hint">Fields marked <span class="req">*</span> are required.</p>';
+  h += '<form id="new-call-form" class="form-panels" novalidate>' +
+    '<section class="panel"><h2 class="panel-title">The call</h2>' +
+    '<label for="nc-nature">Call nature' + reqMark + '</label><select id="nc-nature" name="nature" aria-required="true">' + opts + "</select>" +
+    '<label for="nc-address">Address' + reqMark + '</label><input type="text" id="nc-address" name="address" list="addr-list" placeholder="Start typing an address…" autocomplete="off" aria-required="true" value="' + esc(d.address || "") + '">' +
     '<datalist id="addr-list">' + s.savedAddresses.map(function (a) { return '<option value="' + esc(a) + '">'; }).join("") + "</datalist>" +
     '<div id="nc-suggest"></div>' +
+    '<label class="check"><input type="checkbox" id="nc-save-addr"' + (d.saveAddress ? " checked" : "") + '> Save this address for next time</label>' +
+    '<label class="check"><input type="checkbox" id="nc-exclude-addr"> Exclude this address from history suggestions</label>' +
     '<label for="nc-vehicle">Vehicle (car type)</label><input type="text" id="nc-vehicle" name="vehicle" placeholder="e.g. Honda Accord" value="' + esc(d.vehicle || "") + '">' +
-    '<label for="nc-name">Caller name</label><input type="text" id="nc-name" name="callerName" value="' + esc(d.callerName || "") + '">' +
-    '<label for="nc-phone">Callback number <span class="req">*</span> <span class="req-hint">(required)</span></label><input type="tel" id="nc-phone" name="callerPhone" placeholder="555-0100" value="' + esc(d.callerPhone || "") + '">' +
-    '<label for="nc-notes">Notes</label><textarea id="nc-notes" name="notes">' + esc(d.notes || "") + "</textarea>" +
+    '<label for="nc-notes">Notes</label><textarea id="nc-notes" name="notes" placeholder="What the caller told you">' + esc(d.notes || "") + "</textarea>" +
+    "</section>" +
+    '<section class="panel"><h2 class="panel-title">Caller</h2>' +
+    '<label for="nc-name">Caller name' + reqMark + '</label><input type="text" id="nc-name" name="callerName" autocomplete="off" aria-required="true" value="' + esc(d.callerName || "") + '">' +
+    '<label for="nc-phone">Callback number <span class="req">*</span> <span class="req-hint">(required)</span></label><input type="tel" id="nc-phone" name="callerPhone" placeholder="555-0100" autocomplete="off" aria-required="true" value="' + esc(d.callerPhone || "") + '">' +
+    '<details class="more"' + (d.coordinates || d.mapsLink ? " open" : "") + "><summary>Location extras (optional)</summary>" +
     '<label for="nc-coords">Coordinates (optional)</label><input type="text" id="nc-coords" name="coordinates" placeholder="e.g. 41.2743, -75.8835" value="' + esc(d.coordinates || "") + '">' +
     '<label for="nc-maps">Google Maps link (optional — paste a link)</label><input type="text" id="nc-maps" name="mapsLink" placeholder="https://maps.google.com/…" value="' + esc(d.mapsLink || "") + '">' +
-    '<fieldset><legend>Alert</legend>' +
-    '<label><input type="radio" name="alertKind" value="normal"' + (alertKind === "normal" ? " checked" : "") + '> Normal — alert everyone in the org</label>' +
-    '<label><input type="radio" name="alertKind" value="urgent"' + (alertKind === "urgent" ? " checked" : "") + '> Urgent — different sound/vibration, bypasses the app’s own night mute (in this prototype: shown as urgent)</label>' +
-    '<label><input type="radio" name="alertKind" value="none"' + (alertKind === "none" ? " checked" : "") + '> Don’t notify — create silently</label></fieldset>' +
-    '<label><input type="checkbox" id="nc-save-addr"' + (d.saveAddress ? " checked" : "") + '> Save this address for next time</label>' +
-    '<label><input type="checkbox" id="nc-exclude-addr"> Exclude this address from history suggestions</label>' +
+    "</details></section>" +
+    '<fieldset class="panel alert-kinds"><legend class="panel-title">Alert</legend>' +
+    '<label class="tile"><input type="radio" name="alertKind" value="normal"' + (alertKind === "normal" ? " checked" : "") + '> <span><strong>Normal</strong> — alert everyone in the org</span></label>' +
+    '<label class="tile tile-urgent"><input type="radio" name="alertKind" value="urgent"' + (alertKind === "urgent" ? " checked" : "") + '> <span><strong>Urgent</strong> — different sound/vibration, bypasses the app’s own night mute (in this prototype: shown as urgent)</span></label>' +
+    '<label class="tile"><input type="radio" name="alertKind" value="none"' + (alertKind === "none" ? " checked" : "") + '> <span><strong>Don’t notify</strong> — create silently</span></label></fieldset>' +
     '<div id="nc-error" class="dlg-error" role="alert" hidden></div>' +
-    '<div><button class="btn" type="submit">Review call</button></div>' +
+    '<div class="form-submit"><button class="btn btn-block" type="submit">Review call</button></div>' +
     "</form><div id=\"nc-summary\"></div>";
   return h;
 }
 
 function newCallSummary(data) {
-  var h = "<h2>Review before confirming</h2><div class=\"card\"><dl class=\"kv\">" +
+  var h = "<h2>Review before confirming</h2><div class=\"panel\"><dl class=\"kv\">" +
     "<dt>Nature</dt><dd>" + esc(data.nature) + "</dd>" +
     "<dt>Address</dt><dd>" + esc(data.address) + "</dd>" +
     "<dt>Vehicle</dt><dd>" + esc(data.vehicle || "—") + "</dd>" +
@@ -1197,10 +1293,10 @@ function newCallSummary(data) {
     "<dt>Notes</dt><dd>" + esc(data.notes || "—") + "</dd>" +
     "<dt>Coordinates</dt><dd>" + esc(data.coordinates || "—") + "</dd>" +
     "<dt>Maps link</dt><dd>" + esc(data.mapsLink || "—") + "</dd>" +
-    "<dt>Alert</dt><dd>" + esc(data.alertKind) + "</dd></dl></div>" +
-    '<button class="btn" data-action="confirm-call" data-status="open">Put out call</button>' +
-    '<button class="btn secondary" data-action="confirm-call" data-status="draft">Save as draft (no notifications)</button>' +
-    '<button class="btn secondary" data-action="cancel-summary">Back to edit</button>';
+    "<dt>Alert</dt><dd>" + esc({ normal: "Normal", urgent: "Urgent", none: "Don’t notify" }[data.alertKind] || data.alertKind) + "</dd></dl></div>" +
+    '<div class="btn-stack"><button class="btn btn-block go" data-action="confirm-call" data-status="open">Put out call</button>' +
+    '<button class="btn secondary btn-block" data-action="confirm-call" data-status="draft">Save as draft (no notifications)</button>' +
+    '<button class="btn secondary btn-block" data-action="cancel-summary">Back to edit</button></div>';
   return h;
 }
 
@@ -1217,6 +1313,30 @@ function assignPickerHTML(c) {
   });
   h += '<div><button class="btn secondary" data-action="close-dialog">Done</button></div>';
   return h;
+}
+
+/* ----- in-app confirm / rename dialogs -----
+   The browser's own confirm and prompt boxes look like an error on a
+   phone and can't be styled; they also break the installed-app feel.
+   These use the one shared <dialog> instead (still one dialog at a
+   time: a confirm asked from inside the call detail replaces its
+   content). */
+function askConfirm(title, msg, yesLabel, onYes, danger) {
+  App.pendingAsk = onYes;
+  openDialog("<h2>" + esc(title) + "</h2><p>" + esc(msg) + "</p>" +
+    '<div class="btn-row dlg-foot"><button class="btn' + (danger ? " danger" : "") + '" data-action="ask-yes">' + esc(yesLabel) + "</button>" +
+    '<button class="btn secondary" data-action="close-dialog">Cancel</button></div>');
+}
+// onSave(value) returns a Store result ({ok, error}); an error shows
+// inline and keeps the dialog open.
+function askText(title, label, value, saveLabel, onSave) {
+  App.pendingAsk = onSave;
+  openDialog("<h2>" + esc(title) + '</h2><form id="ask-form" novalidate><label for="ask-input">' + esc(label) + "</label>" +
+    '<input type="text" id="ask-input" name="value" autocomplete="off" value="' + esc(value || "") + '">' +
+    '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
+    '<div class="btn-row dlg-foot"><button class="btn" type="submit">' + esc(saveLabel) + "</button>" +
+    '<button class="btn secondary" type="button" data-action="close-dialog">Cancel</button></div></form>');
+  var inp = $("#ask-input"); if (inp) { inp.focus(); inp.select(); }
 }
 
 /* ----- call detail dialog ----- */
@@ -1244,6 +1364,16 @@ var OUTCOME_LABELS = {
 // runs after the whole script has loaded.
 function outcomeLabel(code) { var L = OUTCOME_LABELS[code]; return L ? L[0] : (code || ""); }
 
+// Call detail (redesigned 2026-11-25): a header (incident, time, nature,
+// state chips), the address with one-tap Call / Maps, a facts list, then
+// one titled section per thing you can do. Every rule and every
+// role check is the same as before — only the layout changed.
+// Optional facts with no value (coordinates, maps link) are left out
+// instead of showing a row of dashes.
+function statusText(c) {
+  var s = c.status === "open" ? "Open" : (c.status === "draft" ? "Draft" : "Closed");
+  return s + (c.outcome ? " (" + outcomeLabel(c.outcome) + ")" : "");
+}
 function callDetailHTML(c) {
   var me = Store.me();
   var canSee = Store.canSeeCaller(c, me.id);
@@ -1261,15 +1391,29 @@ function callDetailHTML(c) {
       myReqs.find(function (r) { return r.status === "approved" && (!r.expiresAt || new Date(r.expiresAt).getTime() > nowMs); }) ||
       (myReqs.length ? myReqs[0] : null);
   }
-  var h = "<h2>" + esc(c.incident) + " — " + esc(c.nature) + "</h2>";
-  h += '<dl class="kv"><dt>Status</dt><dd>' + esc(c.status) + (c.outcome ? " (" + esc(outcomeLabel(c.outcome)) + ")" : "") + "</dd>" +
-    "<dt>Address</dt><dd>" + esc(c.address) + "</dd>" +
+  var tel = canSee ? esc(c.callerPhone.replace(/[^0-9+]/g, "")) : "";
+  var mapsUrl = c.mapsLink || ("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(c.address));
+
+  var chips = ['<span class="badge st-' + esc(c.status) + '">' + esc(statusText(c)) + "</span>"];
+  if (c.urgent) chips.push('<span class="badge urgent">Urgent</span>');
+  if (c.status === "open" && c.responders.length) chips.push('<span class="badge covered">Covered</span>');
+  if (c.backupNeeded) chips.push('<span class="badge backup">Backup needed</span>');
+
+  var h = '<p class="detail-kicker">' + esc(c.incident) + " · " + esc(whenText(c.createdAt)) + "</p>" +
+    "<h2>" + esc(c.nature) + "</h2>" +
+    '<div class="badges">' + chips.join(" ") + "</div>";
+  h += '<div class="detail-addr"><span class="ic">' + ICONS.pin + "</span><span>" + esc(c.address) + "</span></div>";
+  h += '<div class="detail-quick">' +
+    (canSee ? '<a class="btn secondary" href="tel:' + tel + '">' + ICONS.phone + "<span>Call caller</span></a>" : "") +
+    '<a class="btn secondary" href="' + esc(mapsUrl) + '" target="_blank" rel="noopener">' + ICONS.route + "<span>Open in Maps</span></a></div>";
+
+  h += '<dl class="kv detail-kv"><dt>Status</dt><dd>' + esc(statusText(c)) + "</dd>" +
     "<dt>Vehicle</dt><dd>" + esc(c.vehicle || "—") + "</dd>" +
-    "<dt>Coordinates</dt><dd>" + esc(c.coordinates || "—") + "</dd>" +
-    "<dt>Maps link</dt><dd>" + (c.mapsLink ? '<a href="' + esc(c.mapsLink) + '" target="_blank" rel="noopener">' + esc(c.mapsLink) + "</a>" : "—") + "</dd>" +
     "<dt>Notes</dt><dd>" + esc(c.notes || "—") + "</dd>";
+  if (c.coordinates) h += "<dt>Coordinates</dt><dd>" + esc(c.coordinates) + "</dd>";
+  if (c.mapsLink) h += '<dt>Maps link</dt><dd><a href="' + esc(c.mapsLink) + '" target="_blank" rel="noopener">' + esc(c.mapsLink) + "</a></dd>";
   if (canSee) {
-    h += "<dt>Caller</dt><dd>" + esc(c.callerName) + " — <a href=\"tel:" + esc(c.callerPhone.replace(/[^0-9+]/g, "")) + "\">" + esc(c.callerPhone) + "</a> (tap to call back)</dd>";
+    h += "<dt>Caller</dt><dd>" + esc(c.callerName) + " — <a href=\"tel:" + tel + "\">" + esc(c.callerPhone) + "</a></dd>";
   } else if (c.status === "closed") {
     // Responders CAN still see the caller on a closed call (owner
     // reversal 2026-11-17); only non-responders need a grant.
@@ -1286,13 +1430,11 @@ function callDetailHTML(c) {
     } else reqText = "Denied by a dispatcher — you can request again.";
     h += "<dt>Your request</dt><dd>" + reqText + "</dd>";
   }
-  h += "<dt>Responding</dt><dd>" + (c.responders.length ? c.responders.map(function (r) { return userName(r.userId) + " (ETA " + esc(r.eta) + ")"; }).join(", ") : "No one yet") + "</dd>";
+  h += "<dt>Responding</dt><dd>" + (c.responders.length ? c.responders.map(function (r) { return userName(r.userId) + (r.onSceneAt ? " (On scene since " + esc(whenText(r.onSceneAt)) + ")" : " (ETA " + esc(r.eta) + ")"); }).join(", ") : (c.status === "closed" ? "No responders" : "No one yet")) + "</dd>";
   h += "<dt>Backup</dt><dd>" + (c.backupNeeded ? "NEEDED — alerted: " + esc(joinAnd(Store.backupRecipientNames())) : "Not needed") + "</dd>";
   // Equipment out (Fix 1, v2 test): one row per item, with a Return
-  // control for dispatcher/coordinator right here — no more hunting
-  // through Menu → Equipment to do what the block toast just asked
-  // for. Hidden for other roles (hide, don't disable). The button
-  // carries the call id so the handler can re-render this dialog.
+  // control for dispatcher/coordinator right here. Hidden for other
+  // roles (hide, don't disable).
   var equipOutHTML;
   if (!c.equipmentOut.length) equipOutHTML = "None";
   else {
@@ -1309,63 +1451,85 @@ function callDetailHTML(c) {
 
   if (c.status === "open") {
     if ((me.role === "member" || me.role === "coordinator") && !responding) {
-      h += '<h3>Respond</h3><form id="respond-form" data-call="' + c.id + '">' +
-        '<label for="eta">ETA (required — e.g. 15 min or 1h 30m)</label><input type="text" id="eta" name="eta" placeholder="e.g. 15 min">' +
+      h += '<section class="detail-sec"><h3>Respond</h3><form id="respond-form" data-call="' + c.id + '">' +
+        '<label for="eta">ETA (required — e.g. 15 min or 1h 30m)</label><input type="text" id="eta" name="eta" placeholder="e.g. 15 min" autocomplete="off">' +
+        '<div class="eta-chips" role="group" aria-label="Quick ETA">' + ["10 min", "15 min", "20 min", "30 min"].map(function (v) {
+          return '<button type="button" class="chip" data-eta="' + v + '">' + v + "</button>";
+        }).join("") + "</div>" +
         '<button class="btn secondary" type="button" data-action="eta-location">Use my location to prefill ETA</button>' +
         '<div id="eta-note" class="muted"></div>' +
         '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
-        '<div><button class="btn" type="submit">Respond to this call</button></div></form>';
+        '<div><button class="btn btn-block" type="submit">Respond to this call</button></div></form></section>';
     }
-    if (responding) h += "<p>You are responding to this call. Only a dispatcher can unassign you.</p>";
+    if (responding) {
+      var mine = c.responders.find(function (x) { return x.userId === me.id; });
+      h += '<section class="detail-sec"><h3>On scene</h3>' + (mine.onSceneAt
+        ? '<p class="detail-note">You marked yourself on scene at ' + esc(whenText(mine.onSceneAt)) + '.</p><button class="btn secondary" data-action="off-scene" data-id="' + c.id + '" data-user="' + me.id + '">Not on scene yet</button>'
+        : '<button class="btn btn-block go" data-action="on-scene" data-id="' + c.id + '" data-user="' + me.id + '">I’m on scene</button>') + "</section>";
+      h += '<p class="detail-note">You are responding to this call. Only a dispatcher can unassign you.</p>';
+    }
+    var people = "";
     if (Store.can("backup") || responding) {
-      h += c.backupNeeded
-        ? '<button class="btn" data-action="backup-clear" data-id="' + c.id + '">Clear backup-needed</button>'
+      people += c.backupNeeded
+        ? '<button class="btn secondary" data-action="backup-clear" data-id="' + c.id + '">Clear backup-needed</button>'
         : '<button class="btn" data-action="backup-request" data-id="' + c.id + '">Request backup</button>';
+    }
+    if (Store.can("assign")) people += '<button class="btn secondary" data-action="add-member" data-id="' + c.id + '">Add a member</button>';
+    if (Store.can("assign")) {
+      c.responders.forEach(function (r) {
+        if (r.userId === me.id) return; // own status lives under "On scene"
+        people += r.onSceneAt
+          ? '<button class="btn secondary" data-action="off-scene" data-id="' + c.id + '" data-user="' + r.userId + '">' + "Undo " + userName(r.userId) + " on scene</button>"
+          : '<button class="btn secondary" data-action="on-scene" data-id="' + c.id + '" data-user="' + r.userId + '">Mark ' + userName(r.userId) + " on scene</button>";
+      });
     }
     if (Store.can("unassign")) {
       c.responders.forEach(function (r) {
-        h += '<button class="btn secondary" data-action="unassign" data-id="' + c.id + '" data-user="' + r.userId + '">Unassign ' + userName(r.userId) + "</button>";
+        people += '<button class="btn secondary" data-action="unassign" data-id="' + c.id + '" data-user="' + r.userId + '">Unassign ' + userName(r.userId) + "</button>";
       });
     }
     // No duplicate request while one is pending (or an active grant
     // already covers the caller): the button is hidden, not just
     // rejected on tap.
     if ((me.role === "member" || me.role === "coordinator") && !responding && !canSee && !(myReq && myReq.status === "pending")) {
-      h += '<button class="btn secondary" data-action="request-callback" data-id="' + c.id + '">Request callback number (dispatcher approval needed)</button>';
+      people += '<button class="btn secondary" data-action="request-callback" data-id="' + c.id + '">Request callback number (dispatcher approval needed)</button>';
     }
+    if (people) h += '<section class="detail-sec"><h3>People</h3><div class="btn-row">' + people + "</div></section>";
     if (responding || Store.can("create-call")) {
-      h += "<h3>Equipment on this call</h3>";
-      Store.state.equipment.filter(function (e) { return e.kind === "call-only" && e.status === "in-stock"; }).forEach(function (e) {
-        h += '<button class="btn secondary" data-action="checkout" data-item="' + e.id + '" data-id="' + c.id + '">Use ' + esc(e.name) + "</button>";
-      });
+      var useBtns = Store.state.equipment.filter(function (e) { return e.kind === "call-only" && e.status === "in-stock"; }).map(function (e) {
+        return '<button class="btn secondary small" data-action="checkout" data-item="' + e.id + '" data-id="' + c.id + '">Use ' + esc(e.name) + "</button>";
+      }).join("");
+      h += '<section class="detail-sec"><h3>Equipment on this call</h3>' + (useBtns ? '<div class="btn-row">' + useBtns + "</div>" : '<p class="muted">No call equipment in stock right now.</p>');
       var loanable = Store.state.equipment.filter(function (e) { return e.kind === "loan-only" && e.status === "in-stock"; });
       if (loanable.length) {
-        h += '<form id="loan-form" data-call="' + c.id + '"><label for="loan-item">Loan an item to the caller</label><select id="loan-item" name="itemId">' +
+        h += '<form id="loan-form" class="subform" data-call="' + c.id + '"><label for="loan-item">Loan an item to the caller</label><select id="loan-item" name="itemId">' +
           loanable.map(function (e) { return '<option value="' + e.id + '">' + esc(e.name) + "</option>"; }).join("") + "</select>" +
           '<label for="loan-borrower">Borrower name</label><input type="text" id="loan-borrower" name="borrower">' +
-          '<label><input type="checkbox" name="loanAgreed"> Loan agreed (checkbox — no signing in this version)</label>' +
+          '<label class="check"><input type="checkbox" name="loanAgreed"> Loan agreed (checkbox — no signing in this version)</label>' +
           '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
           '<div><button class="btn secondary" type="submit">Create loan</button></div></form>';
       }
+      h += "</section>";
     }
     if (Store.can("close")) {
-      h += "<h3>Close this call</h3><form id=\"close-form\" data-call=\"" + c.id + "\">" +
-        OUTCOMES.map(function (o) { var L = OUTCOME_LABELS[o]; return '<label><input type="radio" name="outcome" value="' + o + '"> <strong>' + L[0] + "</strong> — <span class=\"muted\">" + L[1] + "</span></label>"; }).join("") +
+      h += '<section class="detail-sec"><h3>Close this call</h3><form id="close-form" class="outcomes" data-call="' + c.id + '">' +
+        OUTCOMES.map(function (o) { var L = OUTCOME_LABELS[o]; return '<label class="tile"><input type="radio" name="outcome" value="' + o + '"> <span><strong>' + L[0] + "</strong> — <span class=\"muted\">" + L[1] + "</span></span></label>"; }).join("") +
         '<div id="dlg-error" class="dlg-error" role="alert" hidden></div>' +
-        '<div><button class="btn danger" type="submit">Close call</button></div></form>';
+        '<div><button class="btn danger btn-block" type="submit">Close call</button></div></form></section>';
     }
     h += '<button class="btn secondary" data-action="interstate">Interstate (placeholder — sends nothing)</button>';
   }
   if (c.status === "draft" && Store.can("create-call")) {
-    h += '<button class="btn" data-action="edit-draft" data-id="' + c.id + '">Edit draft</button>' +
+    h += '<section class="detail-sec"><h3>Draft</h3><div class="btn-row">' +
       '<button class="btn" data-action="put-out" data-id="' + c.id + '">Put out this draft</button>' +
-      '<button class="btn danger" data-action="delete-draft" data-id="' + c.id + '">Delete draft</button>';
+      '<button class="btn secondary" data-action="edit-draft" data-id="' + c.id + '">Edit draft</button>' +
+      '<button class="btn danger" data-action="delete-draft" data-id="' + c.id + '">Delete draft</button></div></section>';
   }
   if (c.status === "closed") {
     if (Store.can("reopen")) h += '<button class="btn" data-action="reopen" data-id="' + c.id + '">Reopen call (responses, assignments and equipment stay as they were)</button>';
     if (me.role === "member" && !(myReq && myReq.status === "pending") && !grant) h += '<button class="btn secondary" data-action="request-hidden" data-id="' + c.id + '">Request caller name + phone (dispatcher approval needed)</button>';
   }
-  h += '<div><button class="btn secondary" data-action="close-dialog">Cancel</button></div>';
+  h += '<div class="dlg-foot"><button class="btn secondary btn-block" data-action="close-dialog">Cancel</button></div>';
   return h;
 }
 
@@ -1377,11 +1541,19 @@ function viewEquipment() {
   h += '<p class="muted">One active checkout per item. Equipment is used only through a call; loans use the “loan agreed” checkbox, no signing. ' +
     (canManage ? "You can add and edit items." : "You can use items on calls you are responding to; managing inventory needs the inventory-manager role.") + "</p>";
   if (canManage) h += '<button class="btn" data-action="equip-add">Add equipment item</button>';
+  var KIND = { "call-only": "Call use", "loan-only": "Loan" };
+  var STAT = { "in-stock": ["In stock", "ok"], "out-on-call": ["On a call", "out"], "out-on-loan": ["On loan", "out"] };
   h += Store.state.equipment.map(function (e) {
     var onCall = e.callId ? Store.call(e.callId) : null;
-    return '<article class="card"><h3>' + esc(e.name) + ' <span class="badge">' + esc(e.kind) + '</span> <span class="badge">' + esc(e.status) + "</span></h3>" +
-      '<p class="muted">' + (onCall ? "On " + esc(onCall.incident) + (e.checkedOutBy ? " — checked out by " + userName(e.checkedOutBy) : "") : "In stock") + "</p>" +
-      (e.status !== "in-stock" ? '<button class="btn small" data-action="return-equipment" data-item="' + e.id + '">Mark returned</button>' : "") +
+    var st = STAT[e.status] || [e.status, ""];
+    // Returning an item: the people who run equipment steps (decided:
+    // the member on the call, a dispatcher, or the inventory manager).
+    // Other members don't get the button (hide, don't disable).
+    var canReturn = e.status !== "in-stock" && (Store.can("close") || canManage || e.checkedOutBy === me.id ||
+      (onCall && Store.isResponding(onCall, me.id)));
+    return '<article class="card light item"><div class="item-head"><h3>' + esc(e.name) + '</h3><span class="badge eq-' + st[1] + '">' + esc(st[0]) + "</span></div>" +
+      '<p class="muted">' + esc(KIND[e.kind] || e.kind) + " · " + (onCall ? "On " + esc(onCall.incident) + (e.checkedOutBy ? " — checked out by " + userName(e.checkedOutBy) : "") : "In stock") + "</p>" +
+      (canReturn ? '<button class="btn small" data-action="return-equipment" data-item="' + e.id + '">Mark returned</button>' : "") +
       (canManage ? '<button class="btn small secondary" data-action="equip-edit" data-item="' + e.id + '">Edit</button>' : "") +
       "</article>";
   }).join("") || '<p class="empty">No equipment yet — add some.</p>';
@@ -1397,7 +1569,8 @@ function viewEquipment() {
   h += Store.state.loans.length ? Store.state.loans.map(function (l) {
     var it = Store.item(l.itemId);
     var next = LOAN_NEXT[l.status];
-    return '<article class="card"><h3>Loan — ' + esc(it ? it.name : l.itemId) + ' to ' + esc(l.borrower) + ' <span class="badge">' + esc(l.status) + "</span></h3>" +
+    var LOAN_LABEL = { "created": "Created", "released": "Released", "picked-up": "Picked up", "returned": "Returned", "closed": "Closed" };
+    return '<article class="card light item"><div class="item-head"><h3>Loan — ' + esc(it ? it.name : l.itemId) + " to " + esc(l.borrower) + '</h3><span class="badge">' + esc(LOAN_LABEL[l.status] || l.status) + "</span></div>" +
       '<p class="muted">Loan agreed: ' + (l.loanAgreed ? "yes" : "no") + " · Created " + fmtDT(l.createdAt) + "</p>" +
       '<p class="muted">' + (next ? next[2] : "Closed — nothing left to do.") + "</p>" +
       (next ? '<button class="btn small secondary" data-action="loan-step" data-id="' + l.id + '" data-step="' + next[0] + '">' + next[1] + "</button>" : "") +
@@ -1424,19 +1597,23 @@ function viewDashboard() {
   var inMonth = function (c) { return new Date(c.createdAt).getTime() > now - month; };
   var myCalls = Store.state.calls.filter(function (c) { return Store.isResponding(c, me.id); });
   var myCovered = Store.state.calls.filter(function (c) { return c.status === "closed" && inMonth(c) && Store.isResponding(c, me.id); }).length;
-  var h = "<h1>My stats</h1><dl class=\"kv\">" +
-    "<dt>Calls I’m on</dt><dd>" + myCalls.length + "</dd>" +
-    "<dt>Covered by me (last 30 days)</dt><dd>" + myCovered + " — covered means I responded and the call then closed</dd></dl>";
+  var tile = function (n, label, note) {
+    return '<div class="stat stat-big"><span class="stat-n">' + n + '</span><span class="stat-l">' + label + "</span>" + (note ? '<span class="stat-note">' + note + "</span>" : "") + "</div>";
+  };
+  var h = "<h1>My stats</h1><div class=\"stats stats-2\">" +
+    tile(myCalls.length, "Calls I’m on") +
+    tile(myCovered, "Covered by me (last 30 days)") + "</div>" +
+    '<p class="muted">Covered means I responded and the call then closed.</p>';
   if (Store.can("org-dashboard")) {
     var callsM = Store.state.calls.filter(inMonth);
     var coveredM = callsM.filter(function (c) { return c.status === "closed" && c.responders.length; }).length;
     var openM = callsM.filter(function (c) { return c.status === "open"; }).length;
     var prevCovered = Store.state.calls.filter(function (c) { var t = new Date(c.createdAt).getTime(); return c.status === "closed" && c.responders.length && t <= now - month && t > now - 2 * month; }).length;
-    var cmp = coveredM > prevCovered ? "ABOVE average" : (coveredM < prevCovered ? "BELOW average" : "AT average");
-    h += "<h2>Organisation stats (last 30 days)</h2><dl class=\"kv\">" +
-      "<dt>Open calls</dt><dd>" + openM + "</dd>" +
-      "<dt>Covered calls</dt><dd>" + coveredM + " (" + cmp + " — previous 30 days: " + prevCovered + ")</dd>" +
-      "<dt>Total calls</dt><dd>" + callsM.length + "</dd></dl>";
+    var cmp = coveredM > prevCovered ? "up" : (coveredM < prevCovered ? "down" : "same");
+    h += "<h2>Organisation stats (last 30 days)</h2><div class=\"stats stats-3\">" +
+      tile(openM, "Open calls") +
+      tile(coveredM, "Covered calls", (cmp === "same" ? "Same as" : (cmp === "up" ? "Up from" : "Down from")) + " the previous 30 days (" + prevCovered + ")") +
+      tile(callsM.length, "Total calls") + "</div>";
   }
   return h;
 }
@@ -1456,15 +1633,15 @@ function viewRequests() {
   var done = Store.state.hiddenRequests.filter(function (r) { return r.status !== "pending"; });
   h += "<h2>Pending</h2>" + (pend.length ? pend.map(function (r) {
     var c = Store.call(r.callId);
-    return '<article class="card"><h3>' + userName(r.requesterId) + " — " + esc(c ? c.incident : r.callId) + "</h3>" +
+    return '<article class="card light item"><h3>' + userName(r.requesterId) + " — " + esc(c ? c.incident : r.callId) + "</h3>" +
       '<p>Fields: ' + esc(r.fields.join(", ")) + "</p>" +
-      '<label>Grant duration <select id="dur-' + r.id + '"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="">Forever</option></select></label>' +
-      '<button class="btn" data-action="approve-request" data-id="' + r.id + '">Approve</button>' +
-      '<button class="btn danger" data-action="deny-request" data-id="' + r.id + '">Deny</button></article>';
+      '<label for="dur-' + r.id + '">Grant duration</label><select id="dur-' + r.id + '"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="">Forever</option></select>' +
+      '<div class="btn-row"><button class="btn" data-action="approve-request" data-id="' + r.id + '">Approve</button>' +
+      '<button class="btn danger" data-action="deny-request" data-id="' + r.id + '">Deny</button></div></article>';
   }).join("") : '<p class="empty">No pending requests.</p>');
   h += "<h2>Decided (log)</h2>" + (done.length ? '<div class="table-scroll"><table class="stack-narrow"><thead><tr><th>Who</th><th>Call</th><th>Fields</th><th>Status</th><th>Duration</th><th>Approved by</th><th>Expires</th></tr></thead><tbody>' +
     done.map(function (r) { var c = Store.call(r.callId); return "<tr><td data-label=\"Who\">" + userName(r.requesterId) + "</td><td data-label=\"Call\">" + esc(c ? c.incident : r.callId) + "</td><td data-label=\"Fields\">" + esc(r.fields.join(", ")) + "</td><td data-label=\"Status\">" + esc(r.status) + "</td><td data-label=\"Duration\">" + (r.durationMinutes ? r.durationMinutes + " min" : (r.status === "approved" ? "forever" : "—")) + "</td><td data-label=\"Approved by\">" + (r.approvedBy ? userName(r.approvedBy) : "—") + "</td><td data-label=\"Expires\">" + (r.expiresAt ? fmtDT(r.expiresAt) : "—") + "</td></tr>"; }).join("") + "</tbody></table></div>" : '<p class="empty">Nothing yet.</p>');
-  h += "<h2>Activity log</h2><ul>" + Store.state.activityLog.slice(0, 30).map(function (a) { return "<li>" + fmtDT(a.at) + " — " + esc(a.text) + "</li>"; }).join("") + "</ul>";
+  h += '<h2>Activity log</h2><ul class="log">' + Store.state.activityLog.slice(0, 30).map(function (a) { return '<li><span class="log-at">' + fmtDT(a.at) + "</span> " + esc(a.text) + "</li>"; }).join("") + "</ul>";
   return h;
 }
 
@@ -1473,7 +1650,7 @@ function viewHistory() {
   var mine = Store.state.calls.filter(function (c) { return c.status === "closed" && Store.isResponding(c, me.id); });
   var h = "<h1>My call history</h1><p class=\"muted\">Your own past calls. Caller name and number stay hidden after close unless you responded to the call or have an approved grant.</p>";
   h += mine.length ? mine.map(function (c) {
-    return '<article class="card"><h3>' + esc(c.incident) + " — " + esc(c.nature) + "</h3>" +
+    return '<article class="card light item"><h3>' + esc(c.incident) + " — " + esc(c.nature) + "</h3>" +
       "<dl class=\"kv\"><dt>Date</dt><dd>" + fmtDT(c.closedAt) + "</dd><dt>Outcome</dt><dd>" + esc(outcomeLabel(c.outcome)) + "</dd>" +
       "<dt>Caller</dt><dd>" + (Store.canSeeCaller(c, me.id) ? esc(c.callerName) + " — " + telLink(c.callerPhone) : "Hidden after close") + "</dd></dl>" +
       '<button class="btn small" data-action="open-call" data-id="' + c.id + '">Open call</button></article>';
@@ -1493,7 +1670,7 @@ function viewManage() {
   if (Store.can("manage-natures")) {
     h += "<h2>Call natures</h2><form id=\"nature-add-form\"><label for=\"nature-new\">Add a call nature</label><input type=\"text\" id=\"nature-new\" name=\"name\"><div><button class=\"btn\" type=\"submit\">Add nature</button></div></form>" +
       s.callNatures.map(function (n, i) {
-        return '<div class="card nature-row">' + esc(n) +
+        return '<div class="card light row nature-row"><span class="row-text">' + esc(n) + "</span>" +
           ' <button class="btn small secondary" data-action="nature-up" data-name="' + esc(n) + '">↑</button>' +
           ' <button class="btn small secondary" data-action="nature-down" data-name="' + esc(n) + '">↓</button>' +
           ' <button class="btn small secondary" data-action="nature-edit" data-name="' + esc(n) + '">Rename</button>' +
@@ -1503,20 +1680,20 @@ function viewManage() {
   if (Store.can("manage-addresses")) {
     h += "<h2>Saved addresses</h2><form id=\"address-add-form\"><label for=\"addr-new\">Add a saved address</label><input type=\"text\" id=\"addr-new\" name=\"address\"><div><button class=\"btn\" type=\"submit\">Add address</button></div></form>" +
       s.savedAddresses.map(function (a) {
-        return '<div class="card">' + esc(a) +
+        return '<div class="card light row"><span class="row-text">' + esc(a) + "</span>" +
           ' <button class="btn small secondary" data-action="address-edit" data-addr="' + esc(a) + '">Edit</button>' +
           ' <button class="btn small danger" data-action="address-delete" data-addr="' + esc(a) + '">Delete</button>' +
           ' <button class="btn small secondary" data-action="exclude-address" data-addr="' + esc(a) + '">Exclude from history suggestions</button></div>';
       }).join("") || '<p class="empty">No saved addresses yet.</p>';
     h += "<h3>Excluded from history suggestions</h3><p class=\"muted\">Excluded addresses keep their call records, stop being suggested from a caller’s phone-number history, and drive no history-based suggestions for any caller. Normal typeahead while typing is unaffected.</p>" +
       (s.excludedAddresses.length ? s.excludedAddresses.map(function (a) {
-        return '<div class="card">' + esc(a) + ' <button class="btn small secondary" data-action="unexclude-address" data-addr="' + esc(a) + '">Remove exclusion</button></div>';
+        return '<div class="card light row"><span class="row-text">' + esc(a) + '</span> <button class="btn small secondary" data-action="unexclude-address" data-addr="' + esc(a) + '">Remove exclusion</button></div>';
       }).join("") : '<p class="empty">None excluded.</p>');
   }
   if (Store.can("manage-fleet")) {
     h += "<h2>Fleet</h2><form id=\"fleet-add-form\"><label for=\"fleet-new\">Add a vehicle</label><input type=\"text\" id=\"fleet-new\" name=\"name\"><div><button class=\"btn\" type=\"submit\">Add vehicle</button></div></form>" +
       s.fleet.map(function (v) {
-        return '<div class="card">' + esc(v.name) + ' <span class="badge">' + (v.active ? "active" : "inactive") + "</span>" +
+        return '<div class="card light row"><span class="row-text">' + esc(v.name) + ' <span class="badge' + (v.active ? " eq-ok" : "") + '">' + (v.active ? "active" : "inactive") + "</span></span>" +
           ' <button class="btn small secondary" data-action="fleet-edit" data-id="' + v.id + '">Rename</button>' +
           ' <button class="btn small secondary" data-action="fleet-toggle" data-id="' + v.id + '">' + (v.active ? "Deactivate" : "Reactivate") + "</button></div>";
       }).join("") || '<p class="empty">No vehicles yet.</p>';
@@ -1643,6 +1820,7 @@ document.addEventListener("click", function (e) {
       App.tab = el.dataset.tab;
       render(); break;
     case "close-dialog": closeDialog(); break;
+    case "ask-yes": { var yes = App.pendingAsk; App.pendingAsk = null; closeDialog(); if (yes) yes(); break; }
     case "open-call": c = Store.call(id); if (c) {
       // Drafts are dispatcher+ only (D1): a member must never open
       // one, even if its id is reached some other way.
@@ -1654,6 +1832,15 @@ document.addEventListener("click", function (e) {
     case "interstate": toast("Interstate button is a placeholder in this prototype — it sends nothing."); break;
     case "backup-request": r = Store.requestBackup(id); if (r.ok) toast("Backup requested — everyone alerted."); else showError(r.error); render(); if (r.ok && $("#dlg").open) { c = Store.call(id); if (c) openDialog(callDetailHTML(c)); } break;
     case "backup-clear": r = Store.clearBackup(id); if (r.ok) toast("Backup cleared."); else showError(r.error); render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
+    case "on-scene": case "off-scene": {
+      r = Store.setOnScene(id, el.dataset.user, a === "on-scene");
+      if (r.ok) toast(a === "on-scene" ? "Marked on scene." : "On-scene status cleared."); else showError(r.error);
+      render(); c = Store.call(id); if (c && r.ok && $("#dlg").open) openDialog(callDetailHTML(c)); break;
+    }
+    case "search-clear": {
+      App.callQuery = ""; var si = $("#call-search"); if (si) { si.value = ""; si.focus(); }
+      var res = $("#calls-results"); if (res) res.innerHTML = callsResultsHTML(); break;
+    }
     case "unassign": {
       // Two-tap in-app confirm (no native confirm): first tap arms the
       // button, second tap removes the responder.
@@ -1679,7 +1866,9 @@ document.addEventListener("click", function (e) {
     }
     case "put-out": r = Store.putOutDraft(id); if (r.ok) { toast("Draft put out — alert sent."); closeDialog(); } else showError(r.error); render(); break;
     case "delete-draft":
-      if (confirm("Delete this draft call?")) { r = Store.deleteDraft(id); if (r.ok) toast("Draft deleted."); else toastErr(r.error); closeDialog(); render(); }
+      askConfirm("Delete this draft?", "The draft is removed for good. No one was alerted about it.", "Delete draft", function () {
+        var rr = Store.deleteDraft(id); if (rr.ok) toast("Draft deleted."); else toastErr(rr.error); render();
+      }, true);
       break;
     case "reopen": r = Store.reopenCall(id); if (r.ok) { toast("Call reopened — responses, assignments and equipment stay as they were."); closeDialog(); } else showError(r.error); render(); break;
     case "correct-call": {
@@ -1761,35 +1950,48 @@ document.addEventListener("click", function (e) {
     case "nature-up": r = Store.moveNature(el.dataset.name, -1); if (r.ok) render(); else toastErr(r.error); break;
     case "nature-down": r = Store.moveNature(el.dataset.name, 1); if (r.ok) render(); else toastErr(r.error); break;
     case "nature-edit": {
-      var nn = prompt("Rename call nature:", el.dataset.name);
-      if (nn !== null) { r = Store.editNature(el.dataset.name, nn); if (r.ok) toast("Nature renamed."); else toastErr(r.error); render(); }
+      var oldNature = el.dataset.name;
+      askText("Rename call nature", "New name", oldNature, "Save name", function (v) {
+        var rr = Store.editNature(oldNature, v); if (rr.ok) { toast("Nature renamed."); render(); } return rr;
+      });
       break;
     }
     case "nature-delete":
-      if (confirm("Delete call nature “" + el.dataset.name + "”?")) { r = Store.deleteNature(el.dataset.name); if (r.ok) toast("Nature deleted."); else toastErr(r.error); render(); }
+      (function (name) {
+        askConfirm("Delete “" + name + "”?", "It disappears from the New call list.", "Delete", function () {
+          var rr = Store.deleteNature(name); if (rr.ok) toast("Nature deleted."); else toastErr(rr.error); render();
+        }, true);
+      })(el.dataset.name);
       break;
     case "address-edit": {
-      var na = prompt("Edit saved address:", el.dataset.addr);
-      if (na !== null) { r = Store.editAddress(el.dataset.addr, na); if (r.ok) toast("Address updated."); else toastErr(r.error); render(); }
+      var oldAddr = el.dataset.addr;
+      askText("Edit saved address", "Address", oldAddr, "Save address", function (v) {
+        var rr = Store.editAddress(oldAddr, v); if (rr.ok) { toast("Address updated."); render(); } return rr;
+      });
       break;
     }
     case "address-delete":
-      if (confirm("Delete saved address “" + el.dataset.addr + "”?")) { r = Store.deleteAddress(el.dataset.addr); if (r.ok) toast("Address deleted."); else toastErr(r.error); render(); }
+      (function (addr) {
+        askConfirm("Delete this saved address?", addr, "Delete", function () {
+          var rr = Store.deleteAddress(addr); if (rr.ok) toast("Address deleted."); else toastErr(rr.error); render();
+        }, true);
+      })(el.dataset.addr);
       break;
     case "exclude-address": Store.excludeAddress(el.dataset.addr); toast("Address excluded from history suggestions (records kept)."); render(); break;
     case "unexclude-address": Store.unexcludeAddress(el.dataset.addr); toast("Exclusion removed."); render(); break;
     case "fleet-edit": {
-      var nv = prompt("Rename vehicle:", (Store.state.fleet.find(function (v) { return v.id === id; }) || {}).name || "");
-      if (nv !== null) { r = Store.renameVehicle(id, nv); if (r.ok) toast("Vehicle renamed."); else toastErr(r.error); render(); }
+      askText("Rename vehicle", "Vehicle name", (Store.state.fleet.find(function (v) { return v.id === id; }) || {}).name || "", "Save name", function (v) {
+        var rr = Store.renameVehicle(id, v); if (rr.ok) { toast("Vehicle renamed."); render(); } return rr;
+      });
       break;
     }
     case "fleet-toggle": r = Store.toggleVehicle(id); if (r.ok) toast("Vehicle updated."); else toastErr(r.error); render(); break;
     case "data-export": download("dispatch-mvp-data.json", Store.exportJSON()); toast("Data exported as JSON."); break;
-    case "data-reset":
-      if (confirm("Reset everything to the fake seed data? Your own entered data will be lost.")) { Store.resetToSeed(); App.tab = "home"; toast("Reset to fake seed data."); render(); }
-      break;
+    case "data-reset": askReset(); break;
     case "data-clear":
-      if (confirm("Clear ALL your data? Calls, equipment, addresses, fleet, loans and requests will be gone. Members stay so you can sign in.")) { Store.clearMyData(); App.tab = "home"; toast("All your data cleared — blank slate."); render(); }
+      askConfirm("Clear all your data?", "Calls, equipment, addresses, fleet, loans and requests will be gone. Members stay so you can sign in.", "Clear everything", function () {
+        Store.clearMyData(); App.tab = "home"; toast("All your data cleared — blank slate."); render();
+      }, true);
       break;
     case "export-csv": {
       var rows = [["Incident", "Date closed", "Nature", "Address", "Outcome", "Responders"]];
@@ -1849,6 +2051,14 @@ document.addEventListener("submit", function (e) {
     $("#nc-summary").scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
+  if (f.id === "ask-form") {
+    var fnAsk = App.pendingAsk;
+    if (!fnAsk) { closeDialog(); return; }
+    r = fnAsk(fd.get("value") || "");
+    if (r && r.ok) { App.pendingAsk = null; closeDialog(); }
+    else dlgError((r && r.error) || "That didn't work — check the value.", f);
+    return;
+  }
   if (f.id === "respond-form") {
     r = Store.respond(f.dataset.call, fd.get("eta"));
     if (r.ok) { toast("You are responding — you can now see the caller’s number and call them back."); closeDialog(); render(); }
@@ -1901,6 +2111,12 @@ document.addEventListener("submit", function (e) {
 
 /* address typeahead + history suggestions (offered, never auto-selected) */
 document.addEventListener("input", function (e) {
+  if (e.target.id === "call-search") {
+    // Re-render the results only, so the search box keeps focus.
+    App.callQuery = e.target.value;
+    var res = $("#calls-results"); if (res) res.innerHTML = callsResultsHTML();
+    return;
+  }
   if (e.target.id !== "nc-address" && e.target.id !== "nc-phone") return;
   var addr = ($("#nc-address") || {}).value || "";
   var phone = ($("#nc-phone") || {}).value || "";
@@ -1912,6 +2128,9 @@ document.addEventListener("input", function (e) {
   }).join("") + ' <span class="muted">(suggestion only — tap to use, or ignore)</span></div>';
 });
 document.addEventListener("click", function (e) {
+  // Quick ETA chips in the call detail fill the ETA box (still editable).
+  var chip = e.target.closest("[data-eta]");
+  if (chip) { var etaBox = $("#eta"); if (etaBox) { etaBox.value = chip.dataset.eta; etaBox.focus(); } return; }
   var b = e.target.closest("[data-suggest]");
   if (!b) return;
   // Suggestions are addresses (Fix 6): tapping one fills the address
@@ -1947,7 +2166,11 @@ if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
 }
 // Dialog close (any cause: button, Escape, programmatic) pops the
 // history entry the open pushed, so Android back is never eaten.
-$("#dlg").addEventListener("close", function () { syncOverlayHistory("dialog"); });
+$("#dlg").addEventListener("close", function () {
+  syncOverlayHistory("dialog");
+  // Hand a still-visible toast back to the page (see mountToast).
+  var t = $("#toast"); if (t.parentNode !== document.body) document.body.appendChild(t);
+});
 // The toast body is click-through (pointer-events: none in CSS) so a
 // transient toast never swallows a tap meant for a button underneath
 // it; only the Undo button inside a toast is tappable. Toasts hide
@@ -1956,9 +2179,13 @@ $("#role-switch").addEventListener("change", function (e) {
   captureNewCallDraft(); // keep typed New-call values across the re-render
   Store.state.currentUserId = e.target.value; Store.save(); render();
 });
-$("#reset-demo").addEventListener("click", function () {
-  if (confirm("Reset everything to the fake seed data? Your own entered data will be lost.")) { Store.resetToSeed(); App.tab = "home"; toast("Reset to fake seed data."); render(); }
-});
+function askReset() {
+  closeMenu();
+  askConfirm("Reset to the fake seed data?", "Everything you entered on this device is replaced by the starting test data.", "Reset demo data", function () {
+    Store.resetToSeed(); App.tab = "home"; toast("Reset to fake seed data."); render();
+  }, true);
+}
+$("#reset-demo").addEventListener("click", askReset);
 
 Store.load();
 render();

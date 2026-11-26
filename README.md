@@ -99,7 +99,7 @@ the app is safe for live dispatch.
 
 ## Tests
 
-`tests/smoke.mjs` — 201 browser checks (headless Chrome via
+`tests/smoke.mjs` — 292 browser checks (headless Chrome via
 puppeteer-core). It needs `puppeteer-core` installed and Chrome
 available; set `CHROME_PATH` to your Chrome binary. Run from the repo
 root while serving the directory (see “Run it locally”):

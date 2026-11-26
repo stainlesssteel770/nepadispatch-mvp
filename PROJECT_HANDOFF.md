@@ -44,6 +44,8 @@ Fix 7 — secondary control sizes (UI/UX test v2, Finding 8, sev 2; owner-approv
 
 Fix 8 — footer spacing (UI/UX test v2, Finding 9, sev 1; owner-approved 2026-11-23, Batch C): the last call card now sits 52px above the footer (was 28px) at every width — the Calls list gets a deeper main bottom pad, compensated by dropping the footer's bottom margin on Calls only so the document height and max-scroll geometry are unchanged. Footer text, card layout and bottom nav unchanged. PUSHED 2026-11-23 (commit 03302f8f) and live-verified; `?v=20261123-fix8`, 276/276 smoke checks. See "Fix 8 — footer spacing — 2026-11-23" below.
 
+Polish pass 2 (review + redesign, 2026-11-25): full review, broken/rough flows fixed, and a cleaner mobile-first look on top of the existing layout. Card colour meanings, labels and every settled owner decision unchanged. ON BRANCH `polish/review-and-redesign`, NOT merged (merging changes the live Pages site); `?v=20261125-polish`, 292/292 smoke checks; also adds on-scene status and Calls search. See "Polish pass 2 — 2026-11-25" below.
+
 ## Architecture
 
 Plain HTML/CSS/JS, no build step, no framework, no network calls.
@@ -195,6 +197,8 @@ localStorage, with “Reset to fake seed data”, “Clear all my data”
 (blank slate), and JSON export/import on the My data tab.
 
 **Added 2026-11-23 (owner answers to the UI/UX test v2 open questions):** Q1-A — reopening a call restores the backup request too; close-clears-backup is a BUG, not intended (reopen is settled to restore state as it was). To be fixed as its own item (Batch A). Q2-B — the checkmark button label changes from "Correct" to "Close" (checkmark kept); the confirm toast still asks the outcome (Corrected / Not corrected / Cancelled). To be fixed as its own item (Batch A). Q3 — the builder's 390px browser measurements are enough; no real-phone re-check of the Decided log / first-card top / Home height is needed before calling the fixes done.
+
+**Added 2026-11-25 (owner said yes to two new features):** On-scene status — a responder taps "I’m on scene" on the call sheet (undo: "Not on scene yet"); a dispatcher/coordinator can mark or undo any responder. The pill then reads "PA-05 · On scene" (card colours unchanged), the sheet shows "On scene since …", and each change is logged. ETA itself is still not editable. Calls search — one box on the Calls tab matching incident, address, town, nature, vehicle, notes, status/outcome, responder names and unit codes; caller name/number are searchable only for users who can see them, so search never reveals a hidden caller (UI-only, like every rule here).
 
 ## What was built
 
@@ -2068,3 +2072,117 @@ rest.
 `index.html` asset version bumped `?v=20261123-fix7` →
 `?v=20261123-fix8` (styles.css, seed.js, app.js, and the SW cache
 name matches). PUSHED 2026-11-23 (commit 03302f8f) and live-verified — live app.js, styles.css, manifest and sw.js byte-match local (md5).
+
+## Polish pass 2 — 2026-11-25 (review + redesign)
+
+Asked for: review the app, keep it a fully working test app (no real
+backend), and make it look good. Worked on branch
+`polish/review-and-redesign`; nothing merged to the default branch.
+
+### What the review found
+
+- Toasts raised while the call sheet was open (e.g. "Request sent")
+  rendered under the modal dialog, because the dialog's top layer
+  covered them.
+- Native `confirm()` / `prompt()` boxes for delete, rename, clear data
+  and reset: unstyled, easy to dismiss by accident on Android, and
+  they block the page.
+- Member Home: the footer overlapped the last row (pre-existing
+  `margin-bottom: -32px` pull-up on `.home-compact`).
+- Call cards were `role="button"` while containing other buttons
+  (nested interactive controls, which screen readers announce badly).
+- Call detail was one long flat list; the caller phone link was padded
+  like a 44px button inside a text table; the dialog close button's
+  focus ring spilled outside the sheet.
+- Caller name was required by `createCall` but not marked required on
+  the form.
+- Equipment page showed raw status codes (`in-stock`) and offered
+  "Mark returned" to people who could not return the item.
+- Card and detail times showed only a clock time, even for days-old
+  calls.
+- Stats page was a plain two-column list; the comparison read "up
+  from" without saying from what.
+- Header showed nothing about who is signed in; the new-call banner
+  line could not be tapped.
+
+### What changed
+
+- `mountToast()` moves `#toast` into the open `#dlg` (top layer) and
+  back to `<body>` when the dialog closes, so toasts always show on
+  top.
+- `askConfirm()` / `askText()` replace every native confirm/prompt
+  with the app's own sheet (still one `<dialog>` at a time).
+  Destructive confirms use the red button.
+- Call detail regrouped: kicker (INC · date · time), nature, status
+  badges, address, quick Call caller / Open in Maps, a details box,
+  then Respond (ETA chips 10/15/20/30 min fill the ETA field), People,
+  Equipment, Close (outcome tiles), Interstate, Draft, Cancel. Every
+  existing label the tests and owner decisions rely on is kept.
+- Cards: no `role="button"`; the chevron is its own labelled button;
+  the card body stays tappable. Card colours, badge and pill rules
+  are untouched. `whenText()` shows "Nov 17 · 2:20 PM" for older
+  calls.
+- New call form grouped into panels (The call / Caller / Alert);
+  Caller name marked required; coordinates and map links tucked into
+  an optional "Location extras" section; alert choices as tiles.
+- Home (dispatcher/coordinator/admin): stats strip (Open / No one yet
+  / Backup / Requests). Member Home layout unchanged except the footer
+  overlap fix; it still fits one 390×844 screen.
+- Equipment: friendly status labels and badges; "Mark returned" only
+  for people who can close calls, inventory managers, the person who
+  checked it out, or someone responding to that call. UI-only rule,
+  like every rule here; not server enforcement.
+- My stats as number tiles; the comparison reads "Up from the
+  previous 30 days (n)". Section headings are sentence case.
+- Header: signed-in chip (initials + unit code) that opens the menu;
+  menu items have icons; the banner line opens its call.
+- Visual layer appended to `styles.css` ("Polish layer — 2026-11-25"
+  and "polish fixes (round 2)"): typography, spacing, light item
+  cards, badges, buttons, form panels, bottom-sheet dialog under
+  600px, reduced-motion support.
+- Asset/SW version `20261125-polish`.
+
+### Settled decisions — none changed
+
+Card colour semantics, unit codes on pills, responders seeing the
+caller on closed calls, no ETA editing, "Close" label + confirm toast
++ Undo, reopen restores backup, "Cancel" dialog dismiss, member Home
+fits one screen with the footer above the tab bar, toasts docked
+under the header, 48px secondary controls: all kept and still covered
+by the smoke suite.
+
+### Tests
+
+284/284 smoke checks, zero page errors. Updated on purpose: clear and
+reset data and nature rename now answer the in-app sheet instead of
+native dialogs; "closed (Not corrected)" now reads "Closed (Not
+corrected)"; equipment status text is "In stock"; the Add-member count
+is scoped to `main` (the detail sheet has its own Add a member
+button). New section 31 (8 checks): member Home footer below the last
+row and still one screen; toast on top of an open call sheet and back
+on the page after; card has no role=button and a labelled chevron;
+Clear data asks in-app and Cancel keeps the data with no native
+dialog; Caller name marked required; banner line opens its call; My
+stats tiles keep their labels.
+
+### Added after the owner's yes (same branch): on-scene + Calls search
+
+- `Store.setOnScene(callId, userId, on)` sets or clears
+  `responder.onSceneAt` on an open call; self, or `can("assign")` for
+  anyone. Logged.
+- Pill "PA-05 · On scene" (✓ prefix, same pill colours); detail
+  "Responding" reads "Name (On scene since …)"; buttons "I’m on scene"
+  / "Not on scene yet" for the responder, "Mark … on scene" / "Undo …
+  on scene" for dispatchers.
+- Calls tab search box (sticky under the page title); typing re-renders
+  only `#calls-results`, so the box keeps focus. All words must match.
+  Match count is announced (`role="status"`) with a Clear search
+  button.
+- Tests: 30f's first-card-top range moved down by the search box
+  height (intentional). New section 32 (8 checks): filter + focus,
+  clear, unit code + nature, hidden caller not findable by a member,
+  responder on scene and undo, member can't mark others, dispatcher can.
+  292/292. The suite once crashed early ("DispatchStore is not
+  defined" around the draft put-out step) and passed on rerun; the
+  same crash happened once on the untouched baseline, so it is an
+  existing harness flake, not caused by this work.
